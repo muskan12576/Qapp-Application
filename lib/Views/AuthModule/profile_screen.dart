@@ -1,8 +1,12 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:qapp/Api/api_exceptions.dart';
+import 'package:qapp/Views/AuthModule/model/auth_vm.dart';
+import 'package:qapp/Services/zego_session.dart';
+import 'package:qapp/Utills/token_storage.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
-import 'package:qapp/screens/home_shell.dart';
+import 'package:qapp/Views/HomeModule/home_shell.dart';
 import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
 import 'package:qapp/widgets/primary_button.dart';
@@ -12,7 +16,10 @@ import 'package:flutter/services.dart';
 import 'package:qapp/widgets/q_field.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.setupToken = '', this.phone = ''});
+
+  final String setupToken;
+  final String phone;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -22,6 +29,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _name = TextEditingController();
   final _bio = TextEditingController();
   Uint8List? _photo;
+  bool _busy = false;
+  String _error = '';
 
   Future<void> _pickPhoto() async {
     try {
@@ -45,6 +54,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _name.dispose();
     _bio.dispose();
     super.dispose();
+  }
+
+  Future<void> _finish() async {
+    final name = _name.text.trim();
+    if (name.length < 2) {
+      setState(() => _error = 'Naam daalo');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = '';
+    });
+    try {
+      final named = await AuthController.instance.saveName(
+        setupToken: widget.setupToken,
+        name: name,
+        about: _bio.text.trim(),
+      );
+      final nextToken = named['token']?.toString() ?? widget.setupToken;
+      final done = _photo == null
+          ? await AuthController.instance.skipPhoto(nextToken)
+          : await AuthController.instance.savePhoto(setupToken: nextToken, bytes: _photo!);
+      await TokenStorage.instance.saveLogin(done, phone: widget.phone);
+      MyProfile.photo = _photo;
+      MyProfile.name = name;
+      MyProfile.bio = _bio.text.trim();
+      await ZegoSession.instance.connect();
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(qRoute(const HomeShell()), (route) => false);
+    } on ApiException catch (err) {
+      if (mounted) setState(() => _error = err.message);
+    } catch (err) {
+      if (mounted) setState(() => _error = '$err');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -181,17 +226,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                 ),
+                if (_error.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(_error, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFFF8A80), fontWeight: FontWeight.w700)),
+                ],
                 PrimaryButton(
-                  label: s.done,
-                  onPressed: () {
-                    MyProfile.photo = _photo;
-                    MyProfile.name = _name.text.trim();
-                    MyProfile.bio = _bio.text.trim();
-                    Navigator.of(context).pushAndRemoveUntil(
-                      qRoute(const HomeShell()),
-                      (route) => false,
-                    );
-                  },
+                  label: _busy ? '...' : s.done,
+                  onPressed: _busy ? () {} : _finish,
                 ),
               ],
             ),

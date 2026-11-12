@@ -24,3 +24,34 @@ plugins {
 }
 
 include(":app")
+
+// zego_zim 3.3.0+1 still calls jcenter() (removed in Gradle 9) and pins AGP 4.1.0.
+// Rewrite that cached build file before Gradle evaluates the plugin. Safe to re-run
+// after a fresh `flutter pub get`, which restores the original file.
+run {
+    val zegoProject = runCatching { project(":zego_zim") }.getOrNull() ?: return@run
+    val zegoBuild = zegoProject.projectDir.resolve("build.gradle")
+    if (!zegoBuild.isFile) return@run
+    val original = zegoBuild.readText().replace("\r\n", "\n")
+    if (!original.contains("jcenter()") && !original.contains("com.android.tools.build:gradle:4.1.0")) {
+        return@run
+    }
+    val patched =
+        original
+            .replace("jcenter()", "mavenCentral()")
+            .replace(
+                "classpath 'com.android.tools.build:gradle:4.1.0'",
+                "classpath 'com.android.tools.build:gradle:8.5.2'",
+            )
+            .replace(
+                "    if (project.android.hasProperty(\"namespace\")) {\n        namespace 'im.zego.zim_flutter'\n    }",
+                "    namespace 'im.zego.zim_flutter'",
+            )
+            .replace("compileSdkVersion 31", "compileSdkVersion flutter.compileSdkVersion")
+            .replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
+            .replace("minSdkVersion 16", "minSdkVersion 21")
+    if (patched != original) {
+        zegoBuild.writeText(patched)
+        println("Patched zego_zim Android build for Gradle 9.")
+    }
+}

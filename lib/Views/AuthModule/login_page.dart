@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qapp/Api/api_exceptions.dart';
+import 'package:qapp/Views/AuthModule/model/auth_vm.dart';
 import 'package:qapp/data/countries.dart';
 import 'package:qapp/l10n/app_lang.dart';
-import 'package:qapp/screens/otp_screen.dart';
+import 'package:qapp/Views/AuthModule/otp_screen.dart';
 import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
 import 'package:qapp/widgets/primary_button.dart';
@@ -18,6 +20,8 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _phone = TextEditingController();
   Country _country = countryByIso('IN');
+  bool _busy = false;
+  String _error = '';
 
   @override
   void dispose() {
@@ -37,6 +41,35 @@ class _LoginScreenState extends State<LoginScreen> {
     );
     if (picked != null && mounted) {
       setState(() => _country = picked);
+    }
+  }
+
+  Future<void> _send() async {
+    final typed = _phone.text.trim();
+    if (typed.length < 8) {
+      setState(() => _error = 'Mobile number pura daalo');
+      return;
+    }
+    final digits = '${_country.dial}$typed'.replaceAll(RegExp(r'\D'), '');
+    final shown = '+${_country.dial} $typed';
+    setState(() {
+      _busy = true;
+      _error = '';
+    });
+    try {
+      final data = await AuthController.instance.sendPhone(digits);
+      if (!mounted) return;
+      Navigator.of(context).push(qRoute(OtpScreen(
+        phone: shown,
+        rawPhone: digits,
+        phoneToken: data['token']?.toString() ?? '',
+      )));
+    } on ApiException catch (err) {
+      if (mounted) setState(() => _error = err.message);
+    } catch (err) {
+      if (mounted) setState(() => _error = '$err');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -74,16 +107,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     country: _country,
                     onCode: _pickCountry,
                   ),
+                  if (_error.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(_error, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFFF8A80), fontWeight: FontWeight.w700)),
+                  ],
                   const SizedBox(height: 120),
                   PrimaryButton(
-                    label: S.of(context).sendOtp,
-                    onPressed: () {
-                      final typed = _phone.text.trim();
-                      final shown = typed.isEmpty
-                          ? '+${_country.dial}'
-                          : '+${_country.dial} $typed';
-                      Navigator.of(context).push(qRoute(OtpScreen(phone: shown)));
-                    },
+                    label: _busy ? '...' : S.of(context).sendOtp,
+                    onPressed: _busy ? () {} : _send,
                   ),
                 ],
               ),

@@ -1,7 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:qapp/screens/welcome_screen.dart';
+import 'package:qapp/Services/zego_session.dart';
+import 'package:qapp/Utills/token_storage.dart';
+import 'package:qapp/data/demo_data.dart';
+import 'package:qapp/Views/HomeModule/home_shell.dart';
+import 'package:qapp/Views/AuthModule/welcome_screen.dart';
 import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/widgets/q_background.dart';
 
@@ -33,14 +37,23 @@ class _SplashScreenState extends State<SplashScreen>
     }
   }
 
-  void _go() {
+  Future<void> _go() async {
     if (!mounted || _left) {
       return;
     }
     _left = true;
+    await TokenStorage.instance.load();
+    final loggedIn = TokenStorage.instance.isLoggedIn;
+    if (loggedIn) {
+      MyProfile.name = TokenStorage.instance.name;
+      MyProfile.bio = TokenStorage.instance.about;
+      await ZegoSession.instance.connect();
+    }
+    if (!mounted) return;
+    final next = loggedIn ? const HomeShell() : const WelcomeScreen();
     Navigator.of(context).pushReplacement(
       PageRouteBuilder<void>(
-        pageBuilder: (context, animation, secondaryAnimation) => const WelcomeScreen(),
+        pageBuilder: (context, animation, secondaryAnimation) => next,
         transitionDuration: const Duration(milliseconds: 140),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:qapp/data/demo_data.dart';
-import 'package:qapp/screens/chats_screen.dart';
-import 'package:qapp/screens/groups_screen.dart';
-import 'package:qapp/screens/new_chat_screen.dart';
-import 'package:qapp/screens/settings_screen.dart';
-import 'package:qapp/screens/status_screen.dart';
+import 'package:qapp/Views/ChatModule/chats_screen.dart';
+import 'package:qapp/Views/GroupModule/groups_screen.dart';
+import 'package:qapp/Views/ChatModule/new_chat_screen.dart';
+import 'package:qapp/Views/ProfileModule/settings_screen.dart';
+import 'package:qapp/Views/StatusModule/status_screen.dart';
 import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
 import 'package:qapp/widgets/q_bottom_bar.dart';

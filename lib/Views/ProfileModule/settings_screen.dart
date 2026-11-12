@@ -1,10 +1,12 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:qapp/Views/AuthModule/model/auth_vm.dart';
+import 'package:qapp/Views/AuthModule/welcome_screen.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
 import 'package:qapp/l10n/packs.dart';
-import 'package:qapp/screens/calls_screen.dart';
+import 'package:qapp/Views/CallModule/calls_screen.dart';
 import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
 import 'package:qapp/widgets/q_avatar.dart';
@@ -121,6 +123,7 @@ class SettingsScreen extends StatelessWidget {
                     Navigator.of(context).push(qRoute(const CallsScreen()));
                   },
                 ),
+              const _LogoutTile(),
             ],
           ),
         ),
@@ -166,6 +169,63 @@ class _YouHeader extends StatelessWidget {
   }
 }
 
+class _LogoutTile extends StatefulWidget {
+  const _LogoutTile();
+
+  @override
+  State<_LogoutTile> createState() => _LogoutTileState();
+}
+
+class _LogoutTileState extends State<_LogoutTile> {
+  bool _busy = false;
+
+  Future<void> _logout() async {
+    if (_busy) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          'Are you sure you want to logout?',
+          style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w800),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(S.of(context).cancel, style: TextStyle(color: AppColors.inkSoft)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Logout', style: TextStyle(color: Color(0xFFFF8A80), fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _busy = true);
+    await AuthController.instance.logout();
+    MyProfile.name = '';
+    MyProfile.bio = '';
+    MyProfile.photo = null;
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      qRoute(const WelcomeScreen()),
+      (route) => false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _InfoTile(
+      icon: Icons.logout_rounded,
+      title: _busy ? '...' : 'Logout',
+      subtitle: 'Next time, sign in with OTP',
+      onTap: _busy ? null : _logout,
+    );
+  }
+}
+
 class _InfoTile extends StatelessWidget {
   const _InfoTile({
     required this.icon,
@@ -190,6 +250,7 @@ class _InfoTile extends StatelessWidget {
         ),
         child: ListTile(
           onTap: onTap,
+          tileColor: Colors.transparent,
           leading: Icon(icon, color: AppColors.ink),
           title: Text(
             title,

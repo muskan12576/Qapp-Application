@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
-import 'package:qapp/screens/chat_open_screen.dart';
-import 'package:qapp/screens/settings_screen.dart';
+import 'package:qapp/Views/ChatModule/chat_open_screen.dart';
+import 'package:qapp/Views/ChatModule/zego_inbox.dart';
+import 'package:qapp/Views/ProfileModule/settings_screen.dart';
 import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
 import 'package:qapp/widgets/q_avatar.dart';
@@ -146,21 +147,7 @@ class _ChatsScreenState extends State<ChatsScreen> with SingleTickerProviderStat
                       ],
                     ),
                   ),
-                  Expanded(
-                    child: threads.isEmpty
-                        ? Center(
-                            child: Text(s.noChats, style: AppText.subtitle),
-                          )
-                        : ListView.builder(
-                            keyboardDismissBehavior:
-                                ScrollViewKeyboardDismissBehavior.onDrag,
-                            padding: const EdgeInsets.only(top: 8, bottom: 96),
-                            itemCount: threads.length,
-                            itemBuilder: (context, index) {
-                              return _ChatRow(thread: threads[index]);
-                            },
-                          ),
-                  ),
+                  const Expanded(child: ZegoInbox()),
                 ],
               ),
                   // Chat-list plus is off for now.

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qapp/l10n/app_lang.dart';
-import 'package:qapp/screens/welcome_screen.dart';
+import 'package:qapp/Views/HomeModule/splash_view.dart';
 import 'package:qapp/theme/app_theme.dart';
 
 void main() {
@@ -45,7 +45,7 @@ class Qapp extends StatelessWidget {
               ),
             );
           },
-          home: const WelcomeScreen(),
+          home: const SplashScreen(),
         );
       },
     );

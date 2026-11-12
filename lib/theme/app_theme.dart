@@ -109,6 +109,12 @@ ThemeData buildQappTheme() {
       surfaceTintColor: Colors.transparent,
     ),
     dialogTheme: DialogThemeData(backgroundColor: AppColors.card),
+    listTileTheme: ListTileThemeData(
+      tileColor: AppColors.card,
+      textColor: AppColors.ink,
+      iconColor: AppColors.ink,
+      selectedTileColor: AppColors.surface,
+    ),
     textSelectionTheme: TextSelectionThemeData(
       cursorColor: AppColors.accent,
       selectionColor: AppColors.accent.withValues(alpha: 0.28),

@@ -6,7 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
-import 'package:qapp/screens/status_view_screen.dart';
+import 'package:qapp/Views/StatusModule/status_view_screen.dart';
 import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
 import 'package:qapp/widgets/primary_button.dart';
