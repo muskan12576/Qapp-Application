@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:qapp/Api/api_exceptions.dart';
+import 'package:qapp/Services/api_service.dart';
 import 'package:qapp/Views/AuthModule/model/auth_vm.dart';
 import 'package:qapp/data/countries.dart';
 import 'package:qapp/l10n/app_lang.dart';

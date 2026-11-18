@@ -1,6 +1,6 @@
 import 'dart:convert';
-
-import 'package:flutter/foundation.dart';
+import 'package:qapp/Services/firebase_notification_service.dart';
+import 'package:qapp/Utills/app_utils.dart';
 import 'package:qapp/Utills/app_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -16,7 +16,10 @@ class TokenStorage {
   String about = '';
   Map<String, dynamic> user = const {};
 
-  bool get isLoggedIn => refreshToken.isNotEmpty || (token.isNotEmpty && tokenType == 'bearer');
+  String get userId => user['id']?.toString() ?? '';
+
+  bool get isLoggedIn =>
+      refreshToken.isNotEmpty || (token.isNotEmpty && tokenType == 'bearer');
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -33,7 +36,9 @@ class TokenStorage {
     }
     final decoded = jsonDecode(raw);
     user = decoded is Map<String, dynamic> ? decoded : const {};
-    if (user['name']?.toString().isNotEmpty == true) name = user['name'].toString();
+    if (user['name']?.toString().isNotEmpty == true) {
+      name = user['name'].toString();
+    }
     about = user['about']?.toString() ?? about;
   }
 
@@ -57,7 +62,10 @@ class TokenStorage {
     await prefs.setString(SharedPrefsConstants.userName, name);
     await prefs.setString(SharedPrefsConstants.userAbout, about);
     await prefs.setString(SharedPrefsConstants.userJson, jsonEncode(user));
-    debugPrint('\x1b[32mSESSION SAVED\x1b[0m type=$tokenType');
+    debug('SESSION SAVED type=$tokenType');
+    try {
+      FirebaseNotificationService.instance.syncDeviceToken();
+    } catch (_) {}
   }
 
   Future<void> clear() async {

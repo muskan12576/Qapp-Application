@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:qapp/Views/AuthModule/model/auth_vm.dart';
 import 'package:qapp/Views/AuthModule/welcome_screen.dart';
@@ -11,7 +13,6 @@ import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
 import 'package:qapp/widgets/q_avatar.dart';
 import 'package:qapp/widgets/q_background.dart';
-import 'package:qapp/widgets/qapp_logo.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.tab = false});
@@ -43,7 +44,7 @@ class SettingsScreen extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
-                const Center(child: QappLogo(width: 92)),
+                _YouHeader(name: MyProfile.name, bio: MyProfile.bio, photo: MyProfile.photo),
               ],
               const SizedBox(height: 22),
               Text(
@@ -132,7 +133,7 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
-class _YouHeader extends StatelessWidget {
+class _YouHeader extends StatefulWidget {
   const _YouHeader({
     required this.name,
     required this.bio,
@@ -144,12 +145,110 @@ class _YouHeader extends StatelessWidget {
   final Uint8List? photo;
 
   @override
+  State<_YouHeader> createState() => _YouHeaderState();
+}
+
+class _YouHeaderState extends State<_YouHeader> {
+  Uint8List? _photoBytes;
+  bool _uploading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _photoBytes = widget.photo ?? MyProfile.photo;
+  }
+
+  Future<void> _pickAndUploadPhoto() async {
+    if (_uploading) return;
+    try {
+      final file = await FilePicker.pickFile(
+        type: FileType.image,
+        compressionQuality: 70,
+      );
+      if (file == null || file.path == null) return;
+      final bytes = await File(file.path!).readAsBytes();
+      if (bytes.isEmpty) return;
+      setState(() {
+        _photoBytes = bytes;
+        _uploading = true;
+      });
+      await AuthController.instance.updateUserPhoto(bytes);
+      MyProfile.photo = bytes;
+      if (mounted) {
+        setState(() => _uploading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile photo update ho gayi!'),
+            backgroundColor: AppColors.accent,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _uploading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Photo update error: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final shown = name.trim().isEmpty ? S.of(context).you : name.trim();
+    final shown = widget.name.trim().isEmpty ? S.of(context).you : widget.name.trim();
     return Column(
       children: [
         const SizedBox(height: 12),
-        QAvatar(name: shown, size: 92, bytes: photo),
+        Center(
+          child: Stack(
+            children: [
+              QAvatar(
+                name: shown,
+                size: 96,
+                bytes: _photoBytes,
+              ),
+              if (_uploading)
+                Positioned.fill(
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      color: Colors.black45,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: AppColors.accent,
+                      ),
+                    ),
+                  ),
+                ),
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: GestureDetector(
+                  onTap: _pickAndUploadPhoto,
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: AppColors.accent,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.background, width: 2.5),
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt_rounded,
+                      size: 16,
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 12),
         Text(
           shown,
@@ -160,9 +259,9 @@ class _YouHeader extends StatelessWidget {
             fontWeight: FontWeight.w800,
           ),
         ),
-        if (bio.trim().isNotEmpty) ...[
+        if (widget.bio.trim().isNotEmpty) ...[
           const SizedBox(height: 4),
-          Text(bio.trim(), textAlign: TextAlign.center, style: AppText.subtitle),
+          Text(widget.bio.trim(), textAlign: TextAlign.center, style: AppText.subtitle),
         ],
       ],
     );
@@ -243,14 +342,12 @@ class _InfoTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-        ),
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
         child: ListTile(
           onTap: onTap,
-          tileColor: Colors.transparent,
           leading: Icon(icon, color: AppColors.ink),
           title: Text(
             title,

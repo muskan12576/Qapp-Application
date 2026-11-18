@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:qapp/Services/zego_session.dart';
 import 'package:qapp/Utills/token_storage.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/Views/HomeModule/home_shell.dart';
@@ -20,10 +19,12 @@ class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   bool _left = false;
+  Future<void>? _preloadFuture;
 
   @override
   void initState() {
     super.initState();
+    _preloadFuture = TokenStorage.instance.load();
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
@@ -33,7 +34,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   void _onStatus(AnimationStatus status) {
     if (status == AnimationStatus.completed) {
-      Future<void>.delayed(const Duration(milliseconds: 80), _go);
+      _go();
     }
   }
 
@@ -42,12 +43,15 @@ class _SplashScreenState extends State<SplashScreen>
       return;
     }
     _left = true;
-    await TokenStorage.instance.load();
+    if (_preloadFuture != null) {
+      await _preloadFuture;
+    } else {
+      await TokenStorage.instance.load();
+    }
     final loggedIn = TokenStorage.instance.isLoggedIn;
     if (loggedIn) {
       MyProfile.name = TokenStorage.instance.name;
       MyProfile.bio = TokenStorage.instance.about;
-      await ZegoSession.instance.connect();
     }
     if (!mounted) return;
     final next = loggedIn ? const HomeShell() : const WelcomeScreen();

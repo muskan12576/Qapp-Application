@@ -2,9 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:qapp/Api/api_exceptions.dart';
+import 'package:qapp/Services/api_service.dart';
 import 'package:qapp/Views/AuthModule/model/auth_vm.dart';
-import 'package:qapp/Services/zego_session.dart';
 import 'package:qapp/Utills/token_storage.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
@@ -16,7 +15,12 @@ import 'package:qapp/widgets/primary_button.dart';
 import 'package:qapp/widgets/q_background.dart';
 
 class OtpScreen extends StatefulWidget {
-  const OtpScreen({super.key, this.phone = '', this.rawPhone = '', this.phoneToken = ''});
+  const OtpScreen({
+    super.key,
+    this.phone = '',
+    this.rawPhone = '',
+    this.phoneToken = '',
+  });
 
   final String phone;
   final String rawPhone;
@@ -77,11 +81,15 @@ class _OtpScreenState extends State<OtpScreen> {
       _startTimer();
       _nodes.first.requestFocus();
       if (data['token'] != null) {
-        Navigator.of(context).pushReplacement(qRoute(OtpScreen(
-          phone: widget.phone,
-          rawPhone: widget.rawPhone,
-          phoneToken: data['token'].toString(),
-        )));
+        Navigator.of(context).pushReplacement(
+          qRoute(
+            OtpScreen(
+              phone: widget.phone,
+              rawPhone: widget.rawPhone,
+              phoneToken: data['token'].toString(),
+            ),
+          ),
+        );
       }
     } on ApiException catch (err) {
       if (mounted) setState(() => _error = err.message);
@@ -91,10 +99,8 @@ class _OtpScreenState extends State<OtpScreen> {
   }
 
   Future<void> _verify() async {
-    print('widget.phoneToken: ${widget.phoneToken}');
-    
+
     final code = _controllers.map((item) => item.text).join();
-    print("Code: $code");
     if (code.length != _count) {
       setState(() => _error = '6 digit OTP daalo');
       return;
@@ -104,21 +110,29 @@ class _OtpScreenState extends State<OtpScreen> {
       _error = '';
     });
     try {
-      final data = await AuthController.instance.verifyOtp(phoneToken: widget.phoneToken, otp: code);
+      final data = await AuthController.instance.verifyOtp(
+        phoneToken: widget.phoneToken,
+        otp: code,
+      );
       if (!mounted) return;
       if (data['profile_complete'] == true) {
         await TokenStorage.instance.saveLogin(data, phone: widget.rawPhone);
         MyProfile.name = TokenStorage.instance.name;
         MyProfile.bio = TokenStorage.instance.about;
-        await ZegoSession.instance.connect();
         if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(qRoute(const HomeShell()), (route) => false);
+        Navigator.of(
+          context,
+        ).pushAndRemoveUntil(qRoute(const HomeShell()), (route) => false);
         return;
       }
-      Navigator.of(context).push(qRoute(ProfileScreen(
-        setupToken: data['token']?.toString() ?? '',
-        phone: widget.rawPhone,
-      )));
+      Navigator.of(context).push(
+        qRoute(
+          ProfileScreen(
+            setupToken: data['token']?.toString() ?? '',
+            phone: widget.rawPhone,
+          ),
+        ),
+      );
     } on ApiException catch (err) {
       if (mounted) setState(() => _error = err.message);
     } finally {
@@ -175,7 +189,9 @@ class _OtpScreenState extends State<OtpScreen> {
             padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: MediaQuery.sizeOf(context).height - 80),
+              constraints: BoxConstraints(
+                minHeight: MediaQuery.sizeOf(context).height - 80,
+              ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -232,7 +248,14 @@ class _OtpScreenState extends State<OtpScreen> {
                   const SizedBox(height: 18),
                   if (_error.isNotEmpty) ...[
                     const SizedBox(height: 12),
-                    Text(_error, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFFF8A80), fontWeight: FontWeight.w700)),
+                    Text(
+                      _error,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFFFF8A80),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ],
                   GestureDetector(
                     onTap: _seconds == 0 ? _resend : null,

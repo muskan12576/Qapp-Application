@@ -21,6 +21,9 @@ abstract final class AppColors {
 
   static const accent = Color(0xFF3DDC97);
   static const onAccent = Color(0xFF06221C);
+  static const Color kAmber = Colors.amber;
+  static const Color redcolor = Colors.red;
+  static const Color whitetext = Colors.white;
 
   static Color get background => _dark ? const Color(0xFF0C1F26) : const Color(0xFFF3F6F5);
   static Color get surface => _dark ? const Color(0xFF155659) : const Color(0xFFFFFFFF);

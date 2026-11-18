@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:qapp/Views/GroupModule/model/group_vm.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
 import 'package:qapp/Views/ChatModule/chat_open_screen.dart';
@@ -68,9 +69,44 @@ class _GroupsScreenState extends State<GroupsScreen> with SingleTickerProviderSt
   late final AnimationController _pulse;
   String _chip = 'all';
 
+  Future<void> _loadGroups() async {
+    try {
+      final groups = await GroupViewModel.instance.getUserGroups();
+      for (final g in groups) {
+        final id = g['id']?.toString();
+        final title = g['title']?.toString() ?? 'Group';
+        final membersCount = g['membersCount'] ?? 0;
+        final lastMsg = g['lastMessage']?['body']?.toString() ?? '$membersCount members';
+
+        final existing = ChatBook.instance.threads.firstWhere(
+          (t) => t.chatId == id || (t.phone.isEmpty && t.name == title),
+          orElse: () {
+            final newT = ChatThread(
+              chatId: id,
+              name: title,
+              header: title,
+              time: '',
+              preview: lastMsg,
+              colorIndex: 2,
+              phone: '',
+              about: 'Group ($membersCount members)',
+              messages: [],
+            );
+            ChatBook.instance.add(newT);
+            return newT;
+          },
+        );
+        existing.chatId ??= id;
+        existing.preview = lastMsg;
+      }
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
+    _loadGroups();
     _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))
       ..repeat(reverse: true);
   }

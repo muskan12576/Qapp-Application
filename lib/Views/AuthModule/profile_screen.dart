@@ -1,8 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:qapp/Api/api_exceptions.dart';
+import 'package:qapp/Services/api_service.dart';
 import 'package:qapp/Views/AuthModule/model/auth_vm.dart';
-import 'package:qapp/Services/zego_session.dart';
 import 'package:qapp/Utills/token_storage.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
@@ -80,7 +79,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       MyProfile.photo = _photo;
       MyProfile.name = name;
       MyProfile.bio = _bio.text.trim();
-      await ZegoSession.instance.connect();
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(qRoute(const HomeShell()), (route) => false);
     } on ApiException catch (err) {

@@ -1,8 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:qapp/Services/chat_socket_service.dart';
+import 'package:qapp/Views/ChatModule/model/chat_vm.dart';
+import 'package:qapp/Views/StatusModule/model/status_vm.dart';
+import 'package:qapp/Views/StatusModule/status_view_screen.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
 import 'package:qapp/Views/ChatModule/chat_open_screen.dart';
-import 'package:qapp/Views/ChatModule/zego_inbox.dart';
+import 'package:qapp/Views/ChatModule/new_chat_screen.dart';
 import 'package:qapp/Views/ProfileModule/settings_screen.dart';
 import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
@@ -25,16 +30,26 @@ class _ChatsScreenState extends State<ChatsScreen> with SingleTickerProviderStat
   final _search = TextEditingController();
   late final AnimationController _pulse;
   String _chip = 'all';
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
+    ChatBook.instance.loadLiveChats();
+    StatusViewModel.instance.getStatusFeed();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted) {
+        ChatBook.instance.loadLiveChats();
+        StatusViewModel.instance.getStatusFeed();
+      }
+    });
     _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))
       ..repeat(reverse: true);
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _pulse.dispose();
     _search.dispose();
     super.dispose();
@@ -103,6 +118,15 @@ class _ChatsScreenState extends State<ChatsScreen> with SingleTickerProviderStat
                         ),
                         IconButton(
                           onPressed: () {
+                            Navigator.of(context).push(qRoute(const NewChatScreen()));
+                          },
+                          icon: Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            color: AppColors.ink.withValues(alpha: 0.9),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () {
                             Navigator.of(context).push(qRoute(const SettingsScreen()));
                           },
                           icon: Icon(
@@ -147,7 +171,34 @@ class _ChatsScreenState extends State<ChatsScreen> with SingleTickerProviderStat
                       ],
                     ),
                   ),
-                  const Expanded(child: ZegoInbox()),
+                  Expanded(
+                    child: RefreshIndicator(
+                      color: AppColors.accent,
+                      backgroundColor: AppColors.card,
+                      onRefresh: () async {
+                        await Future.wait([
+                          ChatBook.instance.loadLiveChats(),
+                          StatusViewModel.instance.getStatusFeed(),
+                        ]);
+                      },
+                      child: threads.isEmpty
+                          ? ListView(
+                              children: [
+                                SizedBox(
+                                  height: MediaQuery.sizeOf(context).height * 0.4,
+                                  child: Center(
+                                    child: Text(s.noChats, style: AppText.subtitle),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.only(top: 8, bottom: 24),
+                              itemCount: threads.length,
+                              itemBuilder: (context, index) => _ChatRow(thread: threads[index]),
+                            ),
+                    ),
+                  ),
                 ],
               ),
                   // Chat-list plus is off for now.
@@ -323,12 +374,86 @@ class _ChatRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final last = thread.messages.isEmpty ? null : thread.messages.last;
     final count = thread.unread > 99 ? '99+' : '${thread.unread}';
+
+    // Story ring check
+    final userGroup = StatusViewModel.instance.otherStatuses.firstWhere(
+      (u) => u['userId']?.toString() == thread.peerId,
+      orElse: () => {},
+    );
+    final statuses = (userGroup['statuses'] as List? ?? [])
+        .map((s) => Map<String, dynamic>.from(s as Map))
+        .toList();
+    final hasStatus = statuses.isNotEmpty;
+    final hasUnviewed = statuses.any((s) => s['hasViewed'] != true);
+
+    Widget avatar = QAvatar(
+      name: thread.name,
+      size: hasStatus ? 48 : 52,
+      colorIndex: thread.colorIndex,
+      photo: thread.photo,
+      bytes: thread.photoBytes,
+      online: thread.online,
+    );
+
+    if (hasStatus) {
+      avatar = GestureDetector(
+        onTap: () {
+          final latest = statuses.first;
+          Navigator.of(context).push(
+            qRoute(
+              StatusViewScreen(
+                name: thread.name,
+                caption: latest['caption']?.toString() ?? '',
+                colorIndex: thread.colorIndex,
+                mediaUrl: latest['mediaUrl']?.toString(),
+                kind: latest['kind']?.toString() ?? 'text',
+                youtubeVideoId: latest['youtubeVideoId']?.toString(),
+                sourceUrl: latest['sourceUrl']?.toString(),
+                ownerId: thread.peerId,
+                statusId: latest['id']?.toString(),
+                isMine: false,
+                statuses: statuses,
+              ),
+            ),
+          ).then((_) => StatusViewModel.instance.getStatusFeed());
+        },
+        child: Container(
+          padding: const EdgeInsets.all(2.5),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: hasUnviewed
+                ? const LinearGradient(
+                    colors: [Color(0xFF25D366), Color(0xFF128C7E), Color(0xFF34B7F1)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            color: hasUnviewed ? null : Colors.grey.withOpacity(0.4),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              shape: BoxShape.circle,
+            ),
+            child: avatar,
+          ),
+        ),
+      );
+    }
+
     return Column(
       children: [
         Material(
           color: Colors.transparent,
           child: InkWell(
             onTap: () {
+              thread.unread = 0;
+              ChatBook.instance.ping();
+              if (thread.chatId != null) {
+                ChatSocketService.instance.markRead(thread.chatId!);
+                ChatViewModel.instance.markAsRead(thread.chatId!);
+              }
               Navigator.of(context).push(qRoute(ChatOpenScreen(thread: thread)));
             },
             onLongPress: () => _chatMenu(context, thread),
@@ -336,14 +461,7 @@ class _ChatRow extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
               child: Row(
                 children: [
-                  QAvatar(
-                    name: thread.name,
-                    size: 52,
-                    colorIndex: thread.colorIndex,
-                    photo: thread.photo,
-                    bytes: thread.photoBytes,
-                    online: thread.online,
-                  ),
+                  avatar,
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -395,12 +513,25 @@ class _ChatRow extends StatelessWidget {
                               const SizedBox(width: 4),
                             ],
                             Expanded(
-                              child: Text(
-                                thread.preview,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: AppColors.muted, fontSize: 14),
-                              ),
+                              child: thread.isTyping
+                                  ? Text(
+                                      (thread.isGroup && thread.typingUserName != null && thread.typingUserName!.isNotEmpty)
+                                          ? '${thread.typingUserName} is typing...'
+                                          : 'typing...',
+                                      maxLines: 1,
+                                      style: const TextStyle(
+                                        color: Color(0xFF25D366),
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    )
+                                  : Text(
+                                      thread.preview,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(color: AppColors.muted, fontSize: 14),
+                                    ),
                             ),
                             if (thread.unread > 0)
                               Padding(

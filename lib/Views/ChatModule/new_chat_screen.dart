@@ -1,3 +1,8 @@
+import 'package:qapp/Services/contacts_service.dart';
+import 'package:qapp/Views/ChatModule/model/chat_vm.dart';
+import 'package:qapp/Views/GroupModule/model/group_vm.dart';
+import 'package:qapp/Services/chat_socket_service.dart';
+import 'package:qapp/Utills/token_storage.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,6 +24,15 @@ class NewChatScreen extends StatefulWidget {
 
 class _NewChatScreenState extends State<NewChatScreen> {
   final _search = TextEditingController();
+  List<ContactItem> _deviceContacts = [];
+  List<Map<String, dynamic>> _registeredPeers = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAllContacts();
+  }
 
   @override
   void dispose() {
@@ -26,25 +40,116 @@ class _NewChatScreenState extends State<NewChatScreen> {
     super.dispose();
   }
 
-  List<ChatThread> get _people {
-    final query = _search.text.trim().toLowerCase();
-    return ChatBook.instance.threads.where((thread) {
-      if (query.isEmpty) {
-        return true;
+  Future<void> _loadAllContacts() async {
+    setState(() => _isLoading = true);
+    try {
+      final peers = await ChatViewModel.instance.getPeers();
+      _registeredPeers = peers;
+      ChatBook.instance.peers.clear();
+      ChatBook.instance.peers.addAll(peers);
+
+      final hasPerm = await ContactsService.instance.hasPermission();
+      if (!hasPerm) {
+        await ContactsService.instance.requestPermission();
       }
-      return thread.name.toLowerCase().contains(query) ||
-          thread.phone.toLowerCase().contains(query);
-    }).toList();
+
+      final contacts = await ContactsService.instance.fetchContacts(registeredPeers: peers);
+      if (mounted) {
+        setState(() {
+          _deviceContacts = contacts;
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
-  void _openChat(ChatThread thread) {
-    Navigator.of(context).pop(thread);
+  List<dynamic> get _filteredList {
+    final query = _search.text.trim().toLowerCase();
+    final myId = TokenStorage.instance.userId;
+    final myPhone = TokenStorage.instance.phone;
+
+    // Filter peers
+    final matchedPeers = _registeredPeers.where((p) {
+      final pId = p['id']?.toString() ?? '';
+      final pPhone = p['phone']?.toString() ?? '';
+      final pName = p['name']?.toString() ?? '';
+      if (myId.isNotEmpty && pId == myId) return false;
+      if (myPhone.isNotEmpty && pPhone == myPhone) return false;
+      if (query.isEmpty) return true;
+      return pName.toLowerCase().contains(query) || pPhone.toLowerCase().contains(query);
+    }).toList();
+
+    // Filter device contacts that are not in peers
+    final seenPhones = matchedPeers.map((p) => p['phone']?.toString() ?? '').toSet();
+    final nonPeerContacts = _deviceContacts.where((c) {
+      if (seenPhones.contains(c.phone)) return false;
+      if (query.isEmpty) return true;
+      return c.name.toLowerCase().contains(query) || c.phone.toLowerCase().contains(query);
+    }).toList();
+
+    return [...matchedPeers, ...nonPeerContacts];
+  }
+
+  void _openChat(dynamic item) async {
+    String? peerId;
+    String name = 'User';
+    String phone = '';
+    String? photo;
+    String about = '';
+
+    if (item is Map<String, dynamic>) {
+      peerId = item['id']?.toString();
+      name = item['name']?.toString() ?? 'User';
+      phone = item['phone']?.toString() ?? '';
+      photo = item['profile_image_url']?.toString();
+      about = item['about']?.toString() ?? '';
+    } else if (item is ContactItem) {
+      if (item.isRegistered && item.userId != null) {
+        peerId = item.userId;
+      }
+      name = item.name;
+      phone = item.phone;
+      photo = item.photo;
+      about = item.about ?? '';
+    }
+
+    if (peerId != null) {
+      final chat = await ChatViewModel.instance.openDirectChat(peerId);
+      final chatId = chat?['id']?.toString();
+      if (!mounted) return;
+      final thread = ChatThread(
+        chatId: chatId,
+        peerId: peerId,
+        name: name,
+        header: name,
+        time: '',
+        preview: about.isNotEmpty ? about : 'Available',
+        colorIndex: 0,
+        phone: phone,
+        about: about,
+        photo: photo,
+        unread: 0,
+        online: false,
+        messages: [],
+      );
+      Navigator.of(context).pushReplacement(qRoute(ChatOpenScreen(thread: thread)));
+    } else {
+      // Invite contact via share
+      try {
+        await const MethodChannel('qapp/open_file').invokeMethod('share', {
+          'text': 'Hey $name, let\'s chat on Qapp! Download it here: https://qapp.com',
+          'title': 'Invite to Qapp',
+        });
+      } catch (_) {}
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final people = _people;
+    final items = _filteredList;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: QBackground(
@@ -123,43 +228,136 @@ class _NewChatScreenState extends State<NewChatScreen> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                child: Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: Text(
-                    s.frequent,
-                    style: TextStyle(
-                      color: AppColors.inkSoft,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  itemCount: people.length,
-                  itemBuilder: (context, index) {
-                    final person = people[index];
-                    return ListTile(
-                      onTap: () => _openChat(person),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                      leading: QAvatar(
-                        name: person.name,
-                        size: 46,
-                        colorIndex: person.colorIndex,
-                        photo: person.photo,
-                      ),
-                      title: Text(
-                        person.name,
+                padding: const EdgeInsets.fromLTRB(20, 14, 16, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Contacts (${items.length})',
                         style: TextStyle(
-                          color: AppColors.ink,
+                          color: AppColors.inkSoft,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      subtitle: Text(person.phone, style: AppText.subtitle),
-                    );
-                  },
+                    ),
+                    if (_isLoading)
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
+                      )
+                    else
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.sync_rounded, color: AppColors.accent, size: 20),
+                        tooltip: 'Refresh Contacts',
+                        onPressed: _loadAllContacts,
+                      ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: RefreshIndicator(
+                  color: AppColors.accent,
+                  backgroundColor: AppColors.card,
+                  onRefresh: _loadAllContacts,
+                  child: _isLoading && items.isEmpty
+                      ? const Center(child: CircularProgressIndicator(color: AppColors.accent))
+                      : items.isEmpty
+                          ? ListView(
+                              children: [
+                                SizedBox(
+                                  height: 200,
+                                  child: Center(
+                                    child: Text(
+                                      'No contacts found.\nPull to refresh or check permissions.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(color: AppColors.faint),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              itemCount: items.length,
+                              itemBuilder: (context, index) {
+                              final item = items[index];
+                              String name = 'User';
+                              String phone = '';
+                              String? photo;
+                              String about = '';
+                              bool isRegistered = false;
+
+                              if (item is Map<String, dynamic>) {
+                                name = item['name']?.toString() ?? 'User';
+                                phone = item['phone']?.toString() ?? '';
+                                photo = item['profile_image_url']?.toString();
+                                about = item['about']?.toString() ?? '';
+                                isRegistered = true;
+                              } else if (item is ContactItem) {
+                                name = item.name;
+                                phone = item.phone;
+                                photo = item.photo;
+                                about = item.about ?? '';
+                                isRegistered = item.isRegistered;
+                              }
+
+                              return ListTile(
+                                onTap: () => _openChat(item),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                                leading: QAvatar(
+                                  name: name,
+                                  size: 46,
+                                  colorIndex: index % 5,
+                                  photo: photo,
+                                  online: isRegistered,
+                                ),
+                                title: Text(
+                                  name,
+                                  style: TextStyle(
+                                    color: AppColors.ink,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  phone.isNotEmpty
+                                      ? phone
+                                      : (about.isNotEmpty ? about : 'Available'),
+                                  style: AppText.subtitle,
+                                ),
+                                trailing: isRegistered
+                                    ? Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.accent.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: const Text(
+                                          'Chat',
+                                          style: TextStyle(
+                                            color: AppColors.accent,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      )
+                                    : OutlinedButton(
+                                        onPressed: () => _openChat(item),
+                                        style: OutlinedButton.styleFrom(
+                                          side: BorderSide(color: AppColors.accent.withValues(alpha: 0.6)),
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                                          visualDensity: VisualDensity.compact,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        ),
+                                        child: const Text(
+                                          'Invite',
+                                          style: TextStyle(fontSize: 11, color: AppColors.accent),
+                                        ),
+                                      ),
+                              );
+                            },
+                          ),
                 ),
               ),
             ],
@@ -718,39 +916,77 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
     super.dispose();
   }
 
-  void _create() {
+  Future<void> _create() async {
     final name = _name.text.trim();
     if (name.isEmpty) {
       return;
     }
-    ChatBook.instance.add(
-      ChatThread(
-        name: name,
-        header: name,
-        time: S.of(context).now,
-        preview: '',
-        colorIndex: 2,
-        phone: '',
-        about: S.of(context).groups,
-        messages: [],
-        groups: _picked.map((person) => person.name).toList(),
-        disappear: _vanish ? '24h' : 'off',
-      ),
+    final s = S.of(context);
+    final sNow = s.now;
+    final sGroups = s.groups;
+    final memberIds = _picked
+        .map((p) => p.peerId ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+    final group = await GroupViewModel.instance.createGroup(
+      title: name,
+      memberIds: memberIds,
     );
+
+    final groupId = group?['id']?.toString();
+    final thread = ChatThread(
+      chatId: groupId,
+      name: name,
+      header: name,
+      time: sNow,
+      preview: '',
+      colorIndex: 2,
+      phone: '',
+      about: sGroups,
+      messages: [],
+      groups: _picked.map((person) => person.name).toList(),
+      disappear: _vanish ? '24h' : 'off',
+    );
+    ChatBook.instance.add(thread);
+    if (groupId != null) {
+      ChatSocketService.instance.joinChat(groupId);
+    }
     final pops = widget.popCount;
-    Navigator.of(context).pop();
-    if (pops > 1 && context.mounted) {
+    if (mounted) {
       Navigator.of(context).pop();
+      if (pops > 1 && mounted) {
+        Navigator.of(context).pop();
+      }
     }
   }
 
   Widget _pickStep(S s) {
     final query = _search.text.trim().toLowerCase();
-    final people = ChatBook.instance.threads.where((thread) {
-      if (thread.phone.trim().isEmpty) {
-        return false;
-      }
-      return query.isEmpty || thread.name.toLowerCase().contains(query);
+    final existingThreads = ChatBook.instance.threads.where((thread) => thread.phone.trim().isNotEmpty).toList();
+    final seenPeerIds = existingThreads.map((t) => t.peerId).where((id) => id != null).toSet();
+    final peerThreads = ChatBook.instance.peers.where((p) {
+      final pId = p['id']?.toString();
+      return pId != null && pId != TokenStorage.instance.userId && !seenPeerIds.contains(pId);
+    }).map((p) {
+      return ChatThread(
+        peerId: p['id']?.toString(),
+        name: p['name']?.toString() ?? 'User',
+        header: p['name']?.toString() ?? 'User',
+        time: '',
+        preview: p['about']?.toString() ?? '',
+        colorIndex: 1,
+        phone: p['phone']?.toString() ?? '',
+        about: p['about']?.toString() ?? '',
+        photo: p['profile_image_url']?.toString(),
+        messages: [],
+      );
+    }).toList();
+
+    final allPeople = [...existingThreads, ...peerThreads];
+    final people = allPeople.where((person) {
+      return query.isEmpty ||
+          person.name.toLowerCase().contains(query) ||
+          person.phone.toLowerCase().contains(query);
     }).toList();
     return Column(
       children: [

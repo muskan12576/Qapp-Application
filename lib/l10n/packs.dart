@@ -256,7 +256,8 @@ const _rows = <String, String>{
 };
 
 final packs = <String, Map<String, String>>{
-  for (final entry in _rows.entries) entry.key: _pack(entry.value, _rows['en']!),
+  for (final entry in _rows.entries)
+    entry.key: _pack(entry.value, _rows['en']!),
 };
 
 Map<String, int> packLengths() => {

@@ -20,8 +20,14 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 2;
   int _statusTick = 0;
 
-  void _addGroup() {
-    Navigator.of(context).push(qRoute(const NewGroupScreen()));
+  void _onBottomAdd() {
+    if (_index == 0) {
+      _addStatus();
+    } else if (_index == 1) {
+      Navigator.of(context).push(qRoute(const NewGroupScreen()));
+    } else {
+      Navigator.of(context).push(qRoute(const NewChatScreen()));
+    }
   }
 
   void _addStatus() {
@@ -49,7 +55,7 @@ class _HomeShellState extends State<HomeShell> {
         youName: MyProfile.name,
         youPhoto: MyProfile.photo,
         onChanged: (value) => setState(() => _index = value),
-        onAdd: _addGroup,
+        onAdd: _onBottomAdd,
       ),
     );
   }

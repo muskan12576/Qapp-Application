@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:qapp/theme/app_theme.dart';
+import 'package:qapp/Utills/app_constants.dart';
+import 'package:qapp/widgets/pulsing_online_dot.dart';
 
 class QAvatar extends StatelessWidget {
   const QAvatar({
@@ -41,6 +43,19 @@ class QAvatar extends StatelessWidget {
     return (parts[0].characters.first + parts[1].characters.first).toUpperCase();
   }
 
+  Widget _initialsWidget(double s) {
+    return Center(
+      child: Text(
+        _initials,
+        style: TextStyle(
+          color: AppColors.ink,
+          fontWeight: FontWeight.w800,
+          fontSize: s * 0.34,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = _colors[colorIndex.abs() % _colors.length];
@@ -56,26 +71,37 @@ class QAvatar extends StatelessWidget {
         gaplessPlayback: true,
         filterQuality: FilterQuality.low,
       );
-    } else if (photo != null) {
-      face = Image.asset(
-        photo!,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        cacheWidth: cache,
-        filterQuality: FilterQuality.low,
-      );
+    } else if (photo != null && photo!.isNotEmpty) {
+      if (photo!.startsWith('http://') || photo!.startsWith('https://')) {
+        face = Image.network(
+          photo!,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _initialsWidget(size),
+        );
+      } else if (photo!.startsWith('/')) {
+        final fullUrl = '${AppConstants.baseUrl}$photo';
+        face = Image.network(
+          fullUrl,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _initialsWidget(size),
+        );
+      } else {
+        face = Image.asset(
+          photo!,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          cacheWidth: cache,
+          filterQuality: FilterQuality.low,
+          errorBuilder: (context, error, stackTrace) => _initialsWidget(size),
+        );
+      }
     } else {
-      face = Center(
-        child: Text(
-          _initials,
-          style: TextStyle(
-            color: AppColors.ink,
-            fontWeight: FontWeight.w800,
-            fontSize: size * 0.34,
-          ),
-        ),
-      );
+      face = _initialsWidget(size);
     }
 
     final dot = (size * 0.28).clamp(10.0, 16.0);
@@ -83,21 +109,20 @@ class QAvatar extends StatelessWidget {
       width: size,
       height: size,
       child: Stack(
+        clipBehavior: Clip.none,
         children: [
           Container(
             width: size,
             height: size,
-            clipBehavior: Clip.antiAlias,
-            alignment: Alignment.center,
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
               gradient: LinearGradient(
+                colors: colors,
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: colors,
               ),
-              border: Border.all(color: AppColors.ink.withValues(alpha: 0.16)),
+              shape: BoxShape.circle,
             ),
+            clipBehavior: Clip.antiAlias,
             child: face,
           ),
           if (online)
@@ -105,13 +130,14 @@ class QAvatar extends StatelessWidget {
               right: 0,
               bottom: 0,
               child: Container(
-                width: dot,
-                height: dot,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF3DDC97),
                   shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.background, width: 2),
+                  border: Border.all(
+                    color: AppColors.background,
+                    width: 2,
+                  ),
                 ),
+                child: PulsingOnlineDot(size: dot, showRing: false),
               ),
             ),
         ],

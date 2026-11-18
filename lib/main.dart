@@ -1,16 +1,44 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qapp/Services/api_service.dart';
+import 'package:qapp/Services/firebase_notification_service.dart';
 import 'package:qapp/l10n/app_lang.dart';
 import 'package:qapp/Views/HomeModule/splash_view.dart';
 import 'package:qapp/theme/app_theme.dart';
 
-void main() {
+class GlobalVariable {
+  static final GlobalKey<NavigatorState> navState = GlobalKey<NavigatorState>();
+}
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    ApiBaseService().reportError(
+      message: details.exceptionAsString(),
+      stack: details.stack?.toString(),
+      service: 'Flutter Framework',
+      level: 'error',
+    );
+  };
+
+  try {
+    await Firebase.initializeApp();
+    debugPrint('🔥 [FIREBASE] Firebase.initializeApp() success');
+  } catch (e) {
+    debugPrint('⚠️ [FIREBASE] Init error: $e');
+  }
+
   _paintBars();
   runApp(const Qapp());
-  SystemChrome.setPreferredOrientations(const [
-    DeviceOrientation.portraitUp,
-  ]);
+  SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
+
+  // Initialize FCM notifications & device token sync asynchronously in background
+  FirebaseNotificationService.instance.initialize().catchError((e) {
+    debugPrint('Firebase init error: $e');
+  });
 }
 
 void _paintBars() {
@@ -36,6 +64,7 @@ class Qapp extends StatelessWidget {
         _paintBars();
         return MaterialApp(
           title: 'Qapp',
+          navigatorKey: GlobalVariable.navState,
           debugShowCheckedModeBanner: false,
           theme: buildQappTheme(),
           builder: (context, child) {

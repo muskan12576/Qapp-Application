@@ -1,5 +1,7 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qapp/Views/ChatModule/model/chat_vm.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
 import 'package:qapp/open_chat_file.dart';
@@ -65,54 +67,111 @@ class _ContactScreenState extends State<ContactScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
-  Future<void> _disappear() async {
-    final picked = await showModalBottomSheet<String>(
+  void _viewStarredMessages() {
+    final starred = thread.messages.where((m) => m.starred).toList();
+    showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
       builder: (context) {
-        final s = S.of(context);
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 12),
-              Text(
-                s.disappearing,
-                style: TextStyle(
-                  color: AppColors.ink,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
-                ),
-              ),
-              for (final option in ['off', '24h', '7d', '90d'])
-                ListTile(
-                  title: Text(
-                    option == 'off' ? s.off : option,
-                    style: TextStyle(
-                      color: AppColors.ink,
-                      fontWeight: FontWeight.w700,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.faint.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  trailing: thread.disappear == option
-                      ? const Icon(Icons.check_rounded, color: AppColors.accent)
-                      : null,
-                  onTap: () => Navigator.pop(context, option),
                 ),
-            ],
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const Icon(Icons.star_rounded, color: Colors.amber, size: 22),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Starred Messages (${starred.length})',
+                      style: TextStyle(
+                        color: AppColors.ink,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (starred.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Text(
+                        'No starred messages in this chat',
+                        style: TextStyle(color: AppColors.faint),
+                      ),
+                    ),
+                  )
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: starred.length,
+                      separatorBuilder: (_, _) => Divider(color: AppColors.line),
+                      itemBuilder: (context, index) {
+                        final msg = starred[index];
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            msg.text.isNotEmpty ? msg.text : '[Media]',
+                            style: TextStyle(
+                              color: AppColors.ink,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${msg.mine ? "You" : thread.name} • ${msg.time ?? ""}',
+                            style: TextStyle(color: AppColors.inkSoft, fontSize: 12),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.star_rounded, color: Colors.amber),
+                            onPressed: () {
+                              setState(() => msg.starred = false);
+                              ChatBook.instance.ping();
+                              Navigator.pop(context);
+                              _toast('Message unstarred');
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
           ),
         );
       },
     );
-    if (picked == null || !mounted) {
-      return;
-    }
-    setState(() => thread.disappear = picked);
   }
 
   Future<void> _theme() async {
+    final solidColors = [
+      (0xFF0B141A, 'Default Dark (WhatsApp)'),
+      (0xFF0D2818, 'Olive Green'),
+      (0xFF0B1E2D, 'Midnight Navy'),
+      (0xFF1F1A17, 'Warm Espresso'),
+      (0xFF181818, 'Charcoal Black'),
+      (0xFF1E172B, 'Plum Purple'),
+      (0xFF054C44, 'Classic Teal'),
+    ];
+
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.surface,
@@ -125,9 +184,21 @@ class _ContactScreenState extends State<ContactScreen> {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.faint.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 Text(
-                  S.of(context).theme,
+                  'Chat Wallpaper & Theme',
                   style: TextStyle(
                     color: AppColors.ink,
                     fontWeight: FontWeight.w800,
@@ -135,33 +206,137 @@ class _ContactScreenState extends State<ContactScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    for (var i = 0; i < AppColors.chatThemes.length; i++)
-                      GestureDetector(
-                        onTap: () {
-                          thread.themeIndex = i;
-                          ChatBook.instance.ping();
-                          Navigator.pop(context);
-                        },
-                        child: Container(
-                          width: 46,
-                          height: 46,
-                          decoration: BoxDecoration(
-                            color: AppColors.chatThemes[i],
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: thread.themeIndex == i
-                                  ? AppColors.ink
-                                  : Colors.transparent,
-                              width: 3,
+                Material(
+                  color: AppColors.card,
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () async {
+                      Navigator.pop(context);
+                      final file = await FilePicker.pickFile(type: FileType.image);
+                      if (file != null && file.path != null) {
+                        setState(() {
+                          thread.wallpaperPath = file.path;
+                          thread.wallpaperColor = null;
+                        });
+                        ChatBook.instance.ping();
+                        _toast('Wallpaper updated from Gallery!');
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.accent.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.photo_library_rounded, color: AppColors.accent, size: 22),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Choose from Gallery',
+                                  style: TextStyle(
+                                    color: AppColors.ink,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                Text(
+                                  'Set custom image as chat wallpaper',
+                                  style: TextStyle(color: AppColors.faint, fontSize: 12),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
+                          Icon(Icons.chevron_right_rounded, color: AppColors.faint),
+                        ],
                       ),
-                  ],
+                    ),
+                  ),
                 ),
+                const SizedBox(height: 16),
+                Text(
+                  'Solid Wallpaper Colors',
+                  style: TextStyle(
+                    color: AppColors.inkSoft,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 52,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: solidColors.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 12),
+                    itemBuilder: (context, i) {
+                      final c = solidColors[i];
+                      final isSelected = thread.wallpaperPath == null &&
+                          (thread.wallpaperColor == c.$1 || (thread.wallpaperColor == null && i == 0));
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            thread.wallpaperPath = null;
+                            thread.wallpaperColor = c.$1;
+                            thread.themeIndex = i;
+                          });
+                          ChatBook.instance.ping();
+                          Navigator.pop(context);
+                          _toast('Wallpaper color applied');
+                        },
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Color(c.$1),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: isSelected ? AppColors.accent : Colors.white24,
+                              width: isSelected ? 3 : 1,
+                            ),
+                            boxShadow: isSelected
+                                ? [
+                                    BoxShadow(
+                                      color: AppColors.accent.withOpacity(0.4),
+                                      blurRadius: 8,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: isSelected
+                              ? const Icon(Icons.check_rounded, color: AppColors.accent, size: 24)
+                              : null,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (thread.wallpaperPath != null || thread.wallpaperColor != null)
+                  Center(
+                    child: TextButton.icon(
+                      icon: Icon(Icons.refresh_rounded, color: AppColors.faint, size: 18),
+                      label: Text('Reset to Default Wallpaper', style: TextStyle(color: AppColors.faint)),
+                      onPressed: () {
+                        setState(() {
+                          thread.wallpaperPath = null;
+                          thread.wallpaperColor = null;
+                          thread.themeIndex = 0;
+                        });
+                        ChatBook.instance.ping();
+                        Navigator.pop(context);
+                        _toast('Wallpaper reset to default');
+                      },
+                    ),
+                  ),
               ],
             ),
           ),
@@ -171,48 +346,6 @@ class _ContactScreenState extends State<ContactScreen> {
     if (mounted) {
       setState(() {});
     }
-  }
-
-  Future<void> _addList() async {
-    final controller = TextEditingController(text: thread.listName ?? '');
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        final s = S.of(context);
-        return AlertDialog(
-          backgroundColor: AppColors.card,
-          title: Text(s.addList, style: TextStyle(color: AppColors.ink)),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            style: TextStyle(color: AppColors.ink),
-            cursorColor: AppColors.accent,
-            decoration: InputDecoration(
-              hintText: s.favourite,
-              hintStyle: TextStyle(color: AppColors.faint),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(s.cancel),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: Text(s.yes),
-            ),
-          ],
-        );
-      },
-    );
-    controller.dispose();
-    if (!mounted || name == null || name.isEmpty) {
-      return;
-    }
-    thread.listName = name;
-    ChatBook.instance.ping();
-    setState(() {});
-    _toast(S.of(context).listAdded);
   }
 
   Future<void> _export() async {
@@ -233,9 +366,13 @@ class _ContactScreenState extends State<ContactScreen> {
     if (!await _ask(S.of(context).clearAsk) || !mounted) {
       return;
     }
+    if (thread.chatId != null) {
+      await ChatViewModel.instance.clearChat(thread.chatId!);
+    }
     thread.messages.clear();
     thread.preview = '';
     ChatBook.instance.ping();
+    _toast('Chat history cleared');
     Navigator.pop(context);
   }
 
@@ -244,23 +381,192 @@ class _ContactScreenState extends State<ContactScreen> {
       return;
     }
     thread.blocked = true;
+    if (thread.peerId != null) {
+      await ChatViewModel.instance.blockUser(thread.peerId!);
+    }
     ChatBook.instance.ping();
+    _toast('${thread.name} has been blocked');
     Navigator.pop(context);
   }
 
   Future<void> _report() async {
-    if (!await _ask(S.of(context).report) || !mounted) {
-      return;
+    String category = 'spam';
+    final descCtrl = TextEditingController();
+    bool alsoBlock = true;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDlgState) {
+            return AlertDialog(
+              backgroundColor: AppColors.card,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Row(
+                children: [
+                  const Icon(Icons.report_problem_rounded, color: Colors.redAccent, size: 24),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Report ${thread.name}',
+                      style: TextStyle(
+                        color: AppColors.ink,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Please specify the reason for reporting this contact. Our safety & moderation team will review it immediately.',
+                      style: TextStyle(color: AppColors.inkSoft, fontSize: 13),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Category',
+                      style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 13),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.line),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: category,
+                          isExpanded: true,
+                          dropdownColor: AppColors.card,
+                          style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600),
+                          items: const [
+                            DropdownMenuItem(value: 'spam', child: Text('Spam or unsolicited messages')),
+                            DropdownMenuItem(value: 'harassment', child: Text('Harassment or abusive behavior')),
+                            DropdownMenuItem(value: 'inappropriate', child: Text('Inappropriate content')),
+                            DropdownMenuItem(value: 'fraud', child: Text('Scam, phishing, or fraud')),
+                            DropdownMenuItem(value: 'other', child: Text('Other')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDlgState(() => category = val);
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Description',
+                      style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 13),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: descCtrl,
+                      maxLines: 3,
+                      style: TextStyle(color: AppColors.ink, fontSize: 13),
+                      cursorColor: AppColors.accent,
+                      decoration: InputDecoration(
+                        hintText: 'Describe what happened (optional)...',
+                        hintStyle: TextStyle(color: AppColors.faint, fontSize: 13),
+                        filled: true,
+                        fillColor: AppColors.surface,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: AppColors.line),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: AppColors.line),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.accent),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: alsoBlock,
+                          activeColor: AppColors.accent,
+                          onChanged: (val) {
+                            setDlgState(() => alsoBlock = val == true);
+                          },
+                        ),
+                        Expanded(
+                          child: Text(
+                            'Also block contact and delete chat',
+                            style: TextStyle(color: AppColors.ink, fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: Text(S.of(context).cancel, style: TextStyle(color: AppColors.faint)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Submit Report', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final desc = descCtrl.text.trim();
+    if (thread.peerId != null) {
+      await ChatViewModel.instance.reportAndBlockUser(
+        targetUserId: thread.peerId!,
+        category: category,
+        reason: category,
+        description: desc.isNotEmpty ? desc : 'Reported from mobile contact screen',
+        block: alsoBlock,
+      );
     }
-    _toast(S.of(context).reported);
+
+    if (alsoBlock) {
+      thread.blocked = true;
+      ChatBook.instance.remove(thread);
+    }
+    ChatBook.instance.ping();
+    _toast('Report submitted successfully. Thank you for keeping Qapp safe.');
+    if (alsoBlock && mounted) {
+      Navigator.of(context).pop();
+      Navigator.of(context).pop();
+    }
   }
 
   Future<void> _delete() async {
     if (!await _ask(S.of(context).deleteAsk) || !mounted) {
       return;
     }
+    if (thread.chatId != null) {
+      await ChatViewModel.instance.clearChat(thread.chatId!);
+    }
     final nav = Navigator.of(context);
     ChatBook.instance.remove(thread);
+    _toast('Chat deleted');
     nav.pop();
     nav.pop();
   }
@@ -272,7 +578,6 @@ class _ContactScreenState extends State<ContactScreen> {
         .where((message) => message.kind != ChatKind.text)
         .toList();
     final stars = thread.messages.where((message) => message.starred).length;
-    final disappear = thread.disappear == 'off' ? s.off : thread.disappear;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -381,7 +686,13 @@ class _ContactScreenState extends State<ContactScreen> {
                   ],
                 ),
               ),
-              _tile(Icons.star_border_rounded, s.starred, '$stars', null),
+              _tile(
+                Icons.star_border_rounded,
+                s.starred,
+                '$stars',
+                null,
+                onTap: _viewStarredMessages,
+              ),
               _tile(
                 Icons.notifications_none_rounded,
                 s.muteNotif,
@@ -396,41 +707,12 @@ class _ContactScreenState extends State<ContactScreen> {
                 ),
               ),
               _tile(
-                Icons.timer_outlined,
-                s.disappearing,
-                disappear,
+                Icons.palette_outlined,
+                'Chat Wallpaper & Theme',
+                thread.wallpaperPath != null ? 'Custom' : null,
                 null,
-                onTap: _disappear,
+                onTap: _theme,
               ),
-              _tile(
-                Icons.lock_outline_rounded,
-                s.privacyAdv,
-                null,
-                null,
-                onTap: () {
-                  showDialog<void>(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      backgroundColor: AppColors.card,
-                      title: Text(
-                        s.privacyAdv,
-                        style: TextStyle(color: AppColors.ink),
-                      ),
-                      content: Text(
-                        s.privacyHint,
-                        style: TextStyle(color: AppColors.inkSoft),
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: Text(s.done),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-              _tile(Icons.palette_outlined, s.theme, null, null, onTap: _theme),
               Padding(
                 padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
                 child: Row(
@@ -484,13 +766,6 @@ class _ContactScreenState extends State<ContactScreen> {
                   setState(() => thread.favourite = !thread.favourite);
                   ChatBook.instance.ping();
                 },
-              ),
-              _tile(
-                Icons.playlist_add_rounded,
-                s.addList,
-                thread.listName,
-                null,
-                onTap: _addList,
               ),
               _tile(
                 Icons.upload_rounded,

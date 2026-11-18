@@ -145,7 +145,18 @@ class _CallsScreenState extends State<CallsScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    for (final call in callHistory)
+                    if (callHistory.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 24),
+                        child: Center(
+                          child: Text(
+                            'No recent calls',
+                            style: TextStyle(color: AppColors.faint, fontSize: 14),
+                          ),
+                        ),
+                      )
+                    else
+                      for (final call in callHistory)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         child: Row(

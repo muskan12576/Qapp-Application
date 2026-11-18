@@ -27,7 +27,8 @@ class AppLang extends ChangeNotifier {
 }
 
 class LangScope extends InheritedNotifier<AppLang> {
-  LangScope({super.key, required super.child}) : super(notifier: AppLang.instance);
+  LangScope({super.key, required super.child})
+    : super(notifier: AppLang.instance);
 
   static String codeOf(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<LangScope>();
