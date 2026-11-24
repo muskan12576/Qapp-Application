@@ -22,8 +22,7 @@ class AuthViewModel extends BaseViewModel {
       if (res == null) throw ApiException('Server tak nahi pahunch sake');
       final data = _api.handleHttpResponse(res) as Map<String, dynamic>;
       final dataMap = Map<String, dynamic>.from(data['data'] ?? data);
-      final otp = dataMap.remove('otp')?.toString() ?? '';
-      await sendSmsOtp(phone: phone, otp: otp);
+      // SMS API disabled per user request - OTP returned directly for screen display
       return dataMap;
     });
   }

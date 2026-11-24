@@ -3,12 +3,12 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:qapp/Views/AuthModule/model/auth_vm.dart';
 import 'package:qapp/Views/AuthModule/welcome_screen.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
 import 'package:qapp/l10n/packs.dart';
-import 'package:qapp/Views/CallModule/calls_screen.dart';
 import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
 import 'package:qapp/widgets/q_avatar.dart';
@@ -100,8 +100,7 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 22),
-              _InfoTile(
-                icon: Icons.notifications_none_rounded,
+              _NotificationToggleTile(
                 title: s.notifications,
                 subtitle: s.notificationsHint,
               ),
@@ -115,15 +114,6 @@ class SettingsScreen extends StatelessWidget {
                 title: s.about,
                 subtitle: s.aboutHint,
               ),
-              if (tab)
-                _InfoTile(
-                  icon: Icons.call_rounded,
-                  title: s.callsTitle,
-                  subtitle: s.callHistory,
-                  onTap: () {
-                    Navigator.of(context).push(qRoute(const CallsScreen()));
-                  },
-                ),
               const _LogoutTile(),
             ],
           ),
@@ -357,6 +347,76 @@ class _InfoTile extends StatelessWidget {
             ),
           ),
           subtitle: Text(subtitle, style: AppText.subtitle),
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationToggleTile extends StatefulWidget {
+  const _NotificationToggleTile({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  State<_NotificationToggleTile> createState() => _NotificationToggleTileState();
+}
+
+class _NotificationToggleTileState extends State<_NotificationToggleTile> {
+  bool _enabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadState();
+  }
+
+  Future<void> _loadState() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _enabled = prefs.getBool('app_notifications_enabled') ?? true;
+      });
+    }
+  }
+
+  Future<void> _toggle(bool val) async {
+    setState(() => _enabled = val);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('app_notifications_enabled', val);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          onTap: () => _toggle(!_enabled),
+          leading: Icon(
+            _enabled ? Icons.notifications_active_rounded : Icons.notifications_off_rounded,
+            color: _enabled ? AppColors.accent : AppColors.inkSoft,
+          ),
+          title: Text(
+            widget.title,
+            style: TextStyle(
+              color: AppColors.ink,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          subtitle: Text(
+            _enabled ? widget.subtitle : 'Notifications disabled',
+            style: AppText.subtitle,
+          ),
+          trailing: Switch.adaptive(
+            value: _enabled,
+            activeTrackColor: AppColors.accent,
+            onChanged: _toggle,
+          ),
         ),
       ),
     );

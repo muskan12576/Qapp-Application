@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:qapp/Utills/app_colors.dart';
 import 'package:qapp/Utills/app_utils.dart';
 import 'package:qapp/Views/StatusModule/model/status_vm.dart';
 import 'package:qapp/Views/StatusModule/my_status_screen.dart';
@@ -52,8 +52,11 @@ class StatusViewScreen extends StatefulWidget {
 }
 
 class _StatusViewScreenState extends State<StatusViewScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _play;
+  late final AnimationController _heartAnim;
+  bool _showHeartBurst = false;
+  final List<_HeartParticle> _heartParticles = [];
   final _replyCtrl = TextEditingController();
   final _replyFocus = FocusNode();
   bool _isReplying = false;
@@ -138,16 +141,78 @@ class _StatusViewScreenState extends State<StatusViewScreen>
     });
   }
 
+  void _triggerHeartBurst() {
+    _heartParticles.clear();
+    final rng = math.Random();
+    final count = 32;
+
+    for (int i = 0; i < count; i++) {
+      final isSparkle = i % 5 == 0;
+      final isRibbon = i % 7 == 0;
+      final kind = isSparkle ? 'sparkle' : (isRibbon ? 'ribbon' : 'heart');
+
+      final startX = (rng.nextDouble() - 0.5) * 320;
+      final driftX = (rng.nextDouble() - 0.5) * 160;
+
+      _heartParticles.add(_HeartParticle(
+        startX: startX,
+        endX: startX + driftX,
+        startY: 220 + rng.nextDouble() * 100, // Starts near bottom
+        endY: -420 - rng.nextDouble() * 180, // Floats high above top of screen
+        size: isSparkle ? (14 + rng.nextDouble() * 14) : (20 + rng.nextDouble() * 26),
+        rotation: (rng.nextDouble() - 0.5) * 1.5,
+        swayAmount: 24 + rng.nextDouble() * 32,
+        swayFreq: 6.0 + rng.nextDouble() * 6.0,
+        kind: kind,
+        delay: rng.nextDouble() * 0.35,
+        color: [
+          const Color(0xFFFF2D55),
+          const Color(0xFFFF375F),
+          const Color(0xFFFF5277),
+          const Color(0xFFFF69B4),
+          const Color(0xFFFF4081),
+          const Color(0xFFFF80AB),
+          const Color(0xFFFFD700), // Golden sparkle
+        ][rng.nextInt(7)],
+      ));
+    }
+    setState(() => _showHeartBurst = true);
+    _heartAnim.forward(from: 0.0);
+  }
+
   Future<void> _toggleStatusLike() async {
     final id = _currentStatusId;
     if (id == null) return;
     final currentlyLiked = _isCurrentLiked;
     final currentCount = _currentLikesCount;
+    if (!currentlyLiked) {
+      _triggerHeartBurst();
+    }
     setState(() {
       _localLikes[id] = !currentlyLiked;
       _localLikeCounts[id] = currentlyLiked ? (currentCount > 0 ? currentCount - 1 : 0) : currentCount + 1;
+      if (_currentStatus != null) {
+        _currentStatus!['isLiked'] = _localLikes[id];
+        _currentStatus!['likesCount'] = _localLikeCounts[id];
+      }
     });
-    await StatusViewModel.instance.toggleLike(id);
+    final res = await StatusViewModel.instance.toggleLike(id);
+    if (res != null && mounted) {
+      setState(() {
+        if (res['isLiked'] != null) {
+          _localLikes[id] = res['isLiked'] == true;
+        }
+        if (res['likesCount'] != null) {
+          _localLikeCounts[id] = res['likesCount'] is int
+              ? res['likesCount'] as int
+              : int.tryParse(res['likesCount'].toString()) ?? _localLikeCounts[id]!;
+        }
+        if (_currentStatus != null) {
+          _currentStatus!['isLiked'] = _localLikes[id];
+          _currentStatus!['likesCount'] = _localLikeCounts[id];
+        }
+      });
+    }
   }
 
   Future<void> _shareStatus() async {
@@ -171,6 +236,15 @@ class _StatusViewScreenState extends State<StatusViewScreen>
     _play = AnimationController(vsync: this, duration: _getDuration())
       ..forward();
     _play.addStatusListener(_onDone);
+
+    _heartAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    )..addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted) {
+        setState(() => _showHeartBurst = false);
+      }
+    });
 
     _replyFocus.addListener(() {
       if (_replyFocus.hasFocus) {
@@ -240,6 +314,7 @@ class _StatusViewScreenState extends State<StatusViewScreen>
     _bufferTimer?.cancel();
     _play.removeStatusListener(_onDone);
     _play.dispose();
+    _heartAnim.dispose();
     _replyCtrl.dispose();
     _replyFocus.dispose();
     super.dispose();
@@ -707,6 +782,7 @@ class _StatusViewScreenState extends State<StatusViewScreen>
                   child: GestureDetector(
                     behavior: HitTestBehavior.translucent,
                     onTap: _prevStatus,
+                    onDoubleTap: _toggleStatusLike,
                     onLongPressStart: (_) => _play.stop(),
                     onLongPressEnd: (_) => _play.forward(),
                     child: const SizedBox.expand(),
@@ -717,6 +793,7 @@ class _StatusViewScreenState extends State<StatusViewScreen>
                   child: GestureDetector(
                     behavior: HitTestBehavior.translucent,
                     onTap: _nextStatus,
+                    onDoubleTap: _toggleStatusLike,
                     onLongPressStart: (_) => _play.stop(),
                     onLongPressEnd: (_) => _play.forward(),
                     child: const SizedBox.expand(),
@@ -1023,43 +1100,66 @@ class _StatusViewScreenState extends State<StatusViewScreen>
                                 const SizedBox(width: 8),
                                 GestureDetector(
                                   onTap: _toggleStatusLike,
-                                  child: Container(
-                                    height: 44,
-                                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.75),
-                                      borderRadius: BorderRadius.circular(22),
-                                      border: Border.all(
-                                        color: _isCurrentLiked
-                                            ? Colors.redAccent
-                                            : Colors.white24,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          _isCurrentLiked
-                                              ? Icons.favorite_rounded
-                                              : Icons.favorite_border_rounded,
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    alignment: Alignment.center,
+                                    children: [
+                                      Container(
+                                        height: 44,
+                                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                                        decoration: BoxDecoration(
                                           color: _isCurrentLiked
-                                              ? Colors.redAccent
-                                              : Colors.white,
-                                          size: 20,
-                                        ),
-                                        if (_currentLikesCount > 0) ...[
-                                          const SizedBox(width: 6),
-                                          Text(
-                                            '$_currentLikesCount',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.bold,
-                                            ),
+                                              ? const Color(0xFF2E1220).withValues(alpha: 0.85)
+                                              : Colors.black.withValues(alpha: 0.75),
+                                          borderRadius: BorderRadius.circular(22),
+                                          border: Border.all(
+                                            color: _isCurrentLiked
+                                                ? const Color(0xFFFF2D75)
+                                                : Colors.white24,
+                                            width: _isCurrentLiked ? 1.5 : 1.0,
                                           ),
-                                        ],
-                                      ],
-                                    ),
+                                          boxShadow: _isCurrentLiked
+                                              ? [
+                                                  BoxShadow(
+                                                    color: const Color(0xFFFF2D75).withValues(alpha: 0.45),
+                                                    blurRadius: 14,
+                                                    spreadRadius: 2,
+                                                  ),
+                                                ]
+                                              : null,
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              _isCurrentLiked
+                                                  ? Icons.favorite_rounded
+                                                  : Icons.favorite_border_rounded,
+                                              color: _isCurrentLiked
+                                                  ? const Color(0xFFFF2D75)
+                                                  : Colors.white,
+                                              size: 22,
+                                            ),
+                                            if (_currentLikesCount > 0) ...[
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                '$_currentLikesCount',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                      if (_isCurrentLiked)
+                                        const Positioned(
+                                          top: -8,
+                                          child: Text('👑', style: TextStyle(fontSize: 12)),
+                                        ),
+                                    ],
                                   ),
                                 ),
                                 const SizedBox(width: 8),
@@ -1113,8 +1213,163 @@ class _StatusViewScreenState extends State<StatusViewScreen>
               ),
             ),
           ),
+
+          // Full-screen Bursting Hearts & Celebration Animation Overlay matching Image 3
+          if (_showHeartBurst)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _heartAnim,
+                  builder: (context, _) {
+                    final t = _heartAnim.value;
+                    final centerScale = (t < 0.2)
+                        ? (t / 0.2) * 1.4
+                        : (t < 0.45)
+                            ? 1.4 - ((t - 0.2) / 0.25) * 0.4
+                            : 1.0;
+                    final centerOpacity = (t > 0.5) ? (1.0 - (t - 0.5) / 0.5).clamp(0.0, 1.0) : 1.0;
+                    final centerDy = -100 * t;
+
+                    return Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Giant Center Glow Heart
+                        Transform.translate(
+                          offset: Offset(0, centerDy),
+                          child: Transform.scale(
+                            scale: centerScale,
+                            child: Opacity(
+                              opacity: centerOpacity,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFFFF2D75).withValues(alpha: 0.65 * centerOpacity),
+                                      blurRadius: 50,
+                                      spreadRadius: 15,
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.favorite_rounded,
+                                  size: 110,
+                                  color: Color(0xFFFF2D75),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        // Full-screen floating hearts stream & sparkles rising up (Image 3 style)
+                        for (final p in _heartParticles) ...[
+                          Builder(
+                            builder: (context) {
+                              // Calculate individual particle progress based on its delay
+                              final pProgress = ((t - p.delay) / (1.0 - p.delay)).clamp(0.0, 1.0);
+                              if (pProgress <= 0.0) return const SizedBox.shrink();
+
+                              final currentY = p.startY + (p.endY - p.startY) * pProgress;
+                              final swayX = math.sin(pProgress * p.swayFreq + p.startX) * p.swayAmount;
+                              final currentX = p.startX + (p.endX - p.startX) * pProgress + swayX;
+
+                              final scale = (pProgress < 0.15)
+                                  ? (pProgress / 0.15)
+                                  : (pProgress > 0.85)
+                                      ? (1.0 - (pProgress - 0.85) / 0.15)
+                                      : 1.0;
+                              final opacity = (pProgress > 0.7)
+                                  ? (1.0 - (pProgress - 0.7) / 0.3).clamp(0.0, 1.0)
+                                  : 1.0;
+
+                              Widget itemWidget;
+                              if (p.kind == 'sparkle') {
+                                itemWidget = Icon(
+                                  Icons.auto_awesome_rounded,
+                                  size: p.size,
+                                  color: p.color,
+                                );
+                              } else if (p.kind == 'ribbon') {
+                                itemWidget = Container(
+                                  width: p.size * 0.45,
+                                  height: p.size * 0.9,
+                                  decoration: BoxDecoration(
+                                    color: p.color,
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                );
+                              } else {
+                                // 3D Floating Heart with drop shadow
+                                itemWidget = Container(
+                                  decoration: BoxDecoration(
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: p.color.withValues(alpha: 0.45),
+                                        blurRadius: 10,
+                                        spreadRadius: 2,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Icon(
+                                    Icons.favorite_rounded,
+                                    size: p.size,
+                                    color: p.color,
+                                  ),
+                                );
+                              }
+
+                              return Transform.translate(
+                                offset: Offset(currentX, currentY),
+                                child: Transform.rotate(
+                                  angle: p.rotation * pProgress * 2,
+                                  child: Opacity(
+                                    opacity: opacity,
+                                    child: Transform.scale(
+                                      scale: scale,
+                                      child: itemWidget,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
+}
+
+class _HeartParticle {
+  const _HeartParticle({
+    required this.startX,
+    required this.endX,
+    required this.startY,
+    required this.endY,
+    required this.size,
+    required this.rotation,
+    required this.swayAmount,
+    required this.swayFreq,
+    required this.kind,
+    required this.delay,
+    required this.color,
+  });
+
+  final double startX;
+  final double endX;
+  final double startY;
+  final double endY;
+  final double size;
+  final double rotation;
+  final double swayAmount;
+  final double swayFreq;
+  final String kind;
+  final double delay;
+  final Color color;
 }

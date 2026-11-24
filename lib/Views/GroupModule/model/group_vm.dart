@@ -13,8 +13,13 @@ class GroupViewModel extends BaseViewModel {
     required String title,
     String? photoUrl,
     List<String> memberIds = const [],
+    bool onlyAdminsCanSend = false,
   }) async {
-    final payload = <String, dynamic>{'title': title, 'memberIds': memberIds};
+    final payload = <String, dynamic>{
+      'title': title,
+      'memberIds': memberIds,
+      'onlyAdminsCanSend': onlyAdminsCanSend,
+    };
     if (photoUrl != null) payload['photoUrl'] = photoUrl;
     final res = await _api.postRequest(AppConstants.groupApi, payload);
     if (res != null && (res.statusCode == 200 || res.statusCode == 201)) {

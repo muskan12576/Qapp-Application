@@ -12,7 +12,7 @@ class SharedPrefsConstants {
 }
 
 class AppConstants {
-  static const String baseUrl = "http://192.168.6.56:5000";
+  static const String baseUrl = "http://192.168.1.23:5000";
 
   // SMS OTP Provider
   static const String otpAuthKey =

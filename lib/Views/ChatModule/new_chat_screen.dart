@@ -908,6 +908,33 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
   var _icon = 0;
   var _adminsOnly = false;
   var _vanish = true;
+  List<ContactItem> _fetchedContacts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGroupContacts();
+  }
+
+  Future<void> _loadGroupContacts() async {
+    try {
+      final peers = await ChatViewModel.instance.getPeers();
+      ChatBook.instance.peers.clear();
+      ChatBook.instance.peers.addAll(peers);
+
+      final hasPerm = await ContactsService.instance.hasPermission();
+      if (!hasPerm) {
+        await ContactsService.instance.requestPermission();
+      }
+
+      final contacts = await ContactsService.instance.fetchContacts(registeredPeers: peers);
+      if (mounted) {
+        setState(() {
+          _fetchedContacts = contacts;
+        });
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -931,6 +958,7 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
     final group = await GroupViewModel.instance.createGroup(
       title: name,
       memberIds: memberIds,
+      onlyAdminsCanSend: _adminsOnly,
     );
 
     final groupId = group?['id']?.toString();
@@ -946,6 +974,8 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
       messages: [],
       groups: _picked.map((person) => person.name).toList(),
       disappear: _vanish ? '24h' : 'off',
+      onlyAdminsCanSend: _adminsOnly,
+      myRole: 'admin',
     );
     ChatBook.instance.add(thread);
     if (groupId != null) {
@@ -982,7 +1012,32 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
       );
     }).toList();
 
-    final allPeople = [...existingThreads, ...peerThreads];
+    final seenPhones = <String>{};
+    for (final t in existingThreads) {
+      if (t.phone.isNotEmpty) seenPhones.add(t.phone);
+    }
+    for (final pt in peerThreads) {
+      if (pt.phone.isNotEmpty) seenPhones.add(pt.phone);
+    }
+
+    final contactsAsThreads = _fetchedContacts.where((c) {
+      return !seenPhones.contains(c.phone) && c.phone != TokenStorage.instance.phone;
+    }).map((c) {
+      return ChatThread(
+        peerId: c.userId,
+        name: c.name,
+        header: c.name,
+        time: '',
+        preview: c.isRegistered ? 'Qapp User' : c.phone,
+        colorIndex: 3,
+        phone: c.phone,
+        about: c.isRegistered ? 'Qapp User' : '',
+        photo: c.photo,
+        messages: [],
+      );
+    }).toList();
+
+    final allPeople = [...existingThreads, ...peerThreads, ...contactsAsThreads];
     final people = allPeople.where((person) {
       return query.isEmpty ||
           person.name.toLowerCase().contains(query) ||

@@ -1,14 +1,16 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:qapp/data/demo_data.dart';
-import 'package:qapp/l10n/app_lang.dart';
+import 'package:qapp/Utills/app_utils.dart';
+import 'package:qapp/Views/CallModule/group_call_select_screen.dart';
+import 'package:qapp/Views/CallModule/model/call_vm.dart';
 import 'package:qapp/Views/CallModule/video_call_screen.dart';
 import 'package:qapp/Views/CallModule/voice_call_screen.dart';
+import 'package:qapp/Views/ChatModule/new_chat_screen.dart';
+import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
 import 'package:qapp/widgets/q_avatar.dart';
-import 'package:qapp/widgets/primary_button.dart';
 import 'package:qapp/widgets/q_background.dart';
-import 'package:qapp/widgets/q_field.dart';
 
 class CallsScreen extends StatefulWidget {
   const CallsScreen({super.key});
@@ -18,89 +20,73 @@ class CallsScreen extends StatefulWidget {
 }
 
 class _CallsScreenState extends State<CallsScreen> {
-  final List<String> _groups = [];
+  List<Map<String, dynamic>> _calls = [];
+  bool _loading = true;
+  Timer? _refreshTimer;
 
-  Future<void> _newGroup() async {
-    final controller = TextEditingController();
-    final name = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            14,
-            20,
-            20 + MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.line,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                S.of(context).groupTitle,
-                style: TextStyle(
-                  color: AppColors.ink,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 16),
-              QField(
-                controller: controller,
-                hint: S.of(context).groupHint,
-                textCapitalization: TextCapitalization.words,
-              ),
-              const SizedBox(height: 16),
-              PrimaryButton(
-                label: S.of(context).create,
-                onPressed: () => Navigator.of(context).pop(controller.text),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-    controller.dispose();
-    if (!mounted || name == null || name.trim().isEmpty) {
-      return;
-    }
-    setState(() => _groups.add(name.trim()));
+  @override
+  void initState() {
+    super.initState();
+    _fetchCalls();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (mounted) _fetchCalls(silent: true);
+    });
   }
 
-  void _voice(String name) {
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchCalls({bool silent = false}) async {
+    if (!silent) {
+      setState(() => _loading = true);
+    }
+    try {
+      final list = await CallViewModel.instance.getCallHistory();
+      if (mounted) {
+        setState(() {
+          _calls = list;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _startVoiceCall(Map<String, dynamic> call) {
+    final peerName = call['peer_name']?.toString() ?? 'User';
+    final peerId = call['peer_id']?.toString();
+    final photo = call['peer_photo']?.toString();
+    final t = threadFor(peerName);
+
     Navigator.of(context).push(
       qRoute(
         VoiceCallScreen(
-          name: name,
-          colorIndex: threadFor(name)?.colorIndex ?? 1,
-          photo: threadFor(name)?.photo,
-          status: S.of(context).callStatus(name),
+          name: peerName,
+          recipientId: peerId ?? t?.peerId,
+          photo: photo ?? t?.photo,
+          chatId: t?.chatId,
         ),
       ),
     );
   }
 
-  void _video(String name) {
+  void _startVideoCall(Map<String, dynamic> call) {
+    final peerName = call['peer_name']?.toString() ?? 'User';
+    final peerId = call['peer_id']?.toString();
+    final photo = call['peer_photo']?.toString();
+    final t = threadFor(peerName);
+
     Navigator.of(context).push(
       qRoute(
         VideoCallScreen(
-          name: name,
-          colorIndex: threadFor(name)?.colorIndex ?? 1,
-          photo: threadFor(name)?.photo,
-          status: S.of(context).callStatus(name),
+          name: peerName,
+          recipientId: peerId ?? t?.peerId,
+          photo: photo ?? t?.photo,
+          chatId: t?.chatId,
         ),
       ),
     );
@@ -108,188 +94,247 @@ class _CallsScreenState extends State<CallsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final s = S.of(context);
     return QBackground(
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+          padding: const EdgeInsets.only(top: 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  if (Navigator.of(context).canPop())
-                    Padding(
-                      padding: const EdgeInsets.only(right: 4),
-                      child: IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                      ),
-                    ),
-                  Expanded(child: Text(s.callsTitle, style: AppText.title)),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(s.callsSub, style: AppText.subtitle),
-              const SizedBox(height: 18),
-              Expanded(
-                child: ListView(
+              // Header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
                   children: [
+                    if (Navigator.of(context).canPop())
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
                     Text(
-                      s.callHistory,
+                      'Calls',
                       style: TextStyle(
                         color: AppColors.ink,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.5,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    if (callHistory.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 24),
-                        child: Center(
-                          child: Text(
-                            'No recent calls',
-                            style: TextStyle(color: AppColors.faint, fontSize: 14),
-                          ),
+                    const Spacer(),
+                    IconButton(
+                      tooltip: 'Group Call',
+                      icon: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          shape: BoxShape.circle,
                         ),
-                      )
-                    else
-                      for (final call in callHistory)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Row(
-                          children: [
-                            GestureDetector(
-                              onTap: () => _voice(call.name),
-                              child: QAvatar(
-                                name: call.name,
-                                size: 48,
-                                colorIndex:
-                                    threadFor(call.name)?.colorIndex ?? 1,
-                                photo: threadFor(call.name)?.photo,
-                                bytes: threadFor(call.name)?.photoBytes,
-                                online: threadFor(call.name)?.online ?? false,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () => _voice(call.name),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      call.name,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: AppColors.ink,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      call.time,
-                                      style: TextStyle(
-                                        color: AppColors.muted,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            GestureDetector(
-                              onTap: () => _video(call.name),
-                              child: const _PhoneBadge(
-                                compact: true,
-                                video: true,
-                              ),
-                            ),
-                          ],
-                        ),
+                        child: const Icon(Icons.group_add_rounded, color: Color(0xFF25D366), size: 20),
                       ),
-                    const SizedBox(height: 16),
-                    Text(
-                      s.groups,
-                      style: TextStyle(
-                        color: AppColors.ink,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
+                      onPressed: () {
+                        Navigator.of(context).push(qRoute(const GroupCallSelectScreen()));
+                      },
                     ),
-                    const SizedBox(height: 8),
-                    for (final group in _groups)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Row(
-                          children: [
-                            const _PhoneBadge(group: true),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                group,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: AppColors.ink,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    IconButton(
+                      tooltip: 'Refresh',
+                      icon: Icon(Icons.refresh_rounded, color: AppColors.inkSoft, size: 22),
+                      onPressed: () => _fetchCalls(),
+                    ),
                   ],
                 ),
               ),
-              PrimaryButton(
-                label: s.newGroup,
-                icon: Icons.auto_awesome,
-                iconOnEdge: true,
-                onPressed: _newGroup,
+
+              // Section Subtitle
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                child: Text(
+                  'Recent',
+                  style: TextStyle(
+                    color: AppColors.inkSoft.withValues(alpha: 0.8),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+              ),
+
+              // List of Calls
+              Expanded(
+                child: RefreshIndicator(
+                  color: const Color(0xFF25D366),
+                  backgroundColor: AppColors.card,
+                  onRefresh: () => _fetchCalls(),
+                  child: _loading && _calls.isEmpty
+                      ? const Center(
+                          child: CircularProgressIndicator(color: Color(0xFF25D366)),
+                        )
+                      : _calls.isEmpty
+                          ? ListView(
+                              children: [
+                                SizedBox(height: MediaQuery.sizeOf(context).height * 0.25),
+                                Center(
+                                  child: Column(
+                                    children: [
+                                      Container(
+                                        width: 72,
+                                        height: 72,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.surface,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.phone_missed_rounded,
+                                          color: Color(0xFF25D366),
+                                          size: 36,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        'No recent calls',
+                                        style: TextStyle(
+                                          color: AppColors.ink,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'Voice and video calls will appear here',
+                                        style: TextStyle(
+                                          color: AppColors.inkSoft,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 20),
+                                      ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFF25D366),
+                                          foregroundColor: Colors.black,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(16),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                        ),
+                                        icon: const Icon(Icons.add_call, size: 18),
+                                        label: const Text('Start New Call', style: TextStyle(fontWeight: FontWeight.w800)),
+                                        onPressed: () {
+                                          Navigator.of(context).push(qRoute(const NewChatScreen()));
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              itemCount: _calls.length,
+                              separatorBuilder: (context, idx) => Divider(
+                                color: AppColors.ink.withValues(alpha: 0.08),
+                                height: 1,
+                                indent: 64,
+                              ),
+                              itemBuilder: (context, index) {
+                                final call = _calls[index];
+                                final peerName = call['peer_name']?.toString() ?? 'User';
+                                final peerPhoto = call['peer_photo']?.toString();
+                                final kind = call['kind']?.toString() ?? 'voice';
+                                final isVideo = kind == 'video';
+                                final direction = call['direction']?.toString() ?? 'incoming';
+                                final isMissed = direction == 'missed';
+                                final isOutgoing = direction == 'outgoing';
+
+                                final createdStr = call['createddate']?.toString();
+                                DateTime? createdDate;
+                                if (createdStr != null) {
+                                  createdDate = DateTime.tryParse(createdStr);
+                                }
+                                final timeDisplay = createdDate != null
+                                    ? formatLastSeen(createdDate)
+                                    : 'Recent';
+
+                                final durationSec = call['duration_sec'];
+                                final durInt = durationSec is int
+                                    ? durationSec
+                                    : int.tryParse(durationSec?.toString() ?? '') ?? 0;
+                                final durText = durInt > 0 ? ' • ${durInt}s' : '';
+
+                                return ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  leading: QAvatar(
+                                    name: peerName,
+                                    photo: peerPhoto,
+                                    size: 50,
+                                  ),
+                                  title: Text(
+                                    peerName,
+                                    style: TextStyle(
+                                      color: isMissed ? Colors.redAccent : AppColors.ink,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  subtitle: Row(
+                                    children: [
+                                      Icon(
+                                        isMissed
+                                            ? Icons.call_missed_rounded
+                                            : isOutgoing
+                                                ? Icons.call_made_rounded
+                                                : Icons.call_received_rounded,
+                                        color: isMissed ? Colors.redAccent : const Color(0xFF25D366),
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '$timeDisplay$durText',
+                                        style: TextStyle(
+                                          color: AppColors.inkSoft.withValues(alpha: 0.8),
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.call_rounded,
+                                          color: Color(0xFF25D366),
+                                          size: 22,
+                                        ),
+                                        tooltip: 'Voice Call',
+                                        onPressed: () => _startVoiceCall(call),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.videocam_rounded,
+                                          color: Color(0xFF25D366),
+                                          size: 24,
+                                        ),
+                                        tooltip: 'Video Call',
+                                        onPressed: () => _startVideoCall(call),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    if (isVideo) {
+                                      _startVideoCall(call);
+                                    } else {
+                                      _startVoiceCall(call);
+                                    }
+                                  },
+                                );
+                              },
+                            ),
+                ),
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _PhoneBadge extends StatelessWidget {
-  const _PhoneBadge({
-    this.compact = false,
-    this.group = false,
-    this.video = false,
-  });
-
-  final bool compact;
-  final bool group;
-  final bool video;
-
-  @override
-  Widget build(BuildContext context) {
-    final size = compact ? 40.0 : 48.0;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: AppColors.surface,
-      ),
-      child: Icon(
-        group
-            ? Icons.groups_rounded
-            : video
-            ? Icons.videocam_rounded
-            : Icons.phone_rounded,
-        color: AppColors.ink,
-        size: compact ? 18 : 22,
       ),
     );
   }

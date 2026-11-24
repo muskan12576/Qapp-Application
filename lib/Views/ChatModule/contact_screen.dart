@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qapp/Views/ChatModule/model/chat_vm.dart';
+import 'package:qapp/Views/GroupModule/model/group_vm.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
 import 'package:qapp/open_chat_file.dart';
@@ -11,6 +13,8 @@ import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
 import 'package:qapp/widgets/q_avatar.dart';
 import 'package:qapp/widgets/q_background.dart';
+import 'package:qapp/widgets/chat_media_bubble.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ContactScreen extends StatefulWidget {
   const ContactScreen({super.key, required this.thread});
@@ -24,6 +28,116 @@ class ContactScreen extends StatefulWidget {
 class _ContactScreenState extends State<ContactScreen> {
   ChatThread get thread => widget.thread;
 
+  List<Map<String, dynamic>> _groupMembers = [];
+  bool _loadingMembers = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGroupMembers();
+  }
+
+  Future<void> _loadGroupMembers() async {
+    if (!thread.isGroup && thread.phone.trim().isNotEmpty) return;
+    final groupId = thread.chatId;
+    if (groupId == null || groupId.isEmpty) return;
+    setState(() => _loadingMembers = true);
+    try {
+      final details = await GroupViewModel.instance.getGroupDetails(groupId);
+      if (details != null && details['members'] is List && mounted) {
+        setState(() {
+          _groupMembers = List<Map<String, dynamic>>.from(details['members']);
+          _loadingMembers = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingMembers = false);
+    }
+  }
+
+  Future<void> _removeMember(Map<String, dynamic> member) async {
+    final memberId = member['id']?.toString() ?? member['userId']?.toString();
+    final memberName = member['name']?.toString() ?? 'Member';
+    if (memberId == null || thread.chatId == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Remove $memberName?',
+          style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700),
+        ),
+        content: Text(
+          'Are you sure you want to remove $memberName from this group?',
+          style: TextStyle(color: AppColors.inkSoft),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              S.of(context).cancel,
+              style: TextStyle(color: AppColors.faint),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Remove',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    final success = await GroupViewModel.instance.removeMember(
+      thread.chatId!,
+      memberId,
+    );
+    if (success && mounted) {
+      setState(() {
+        _groupMembers.removeWhere(
+          (m) => (m['id']?.toString() ?? m['userId']?.toString()) == memberId,
+        );
+      });
+      _toast('$memberName removed from group');
+    } else if (mounted) {
+      _toast('Failed to remove member');
+    }
+  }
+
+  Future<void> _saveWallpaperPrefs(
+    String? path,
+    int? color,
+    int themeIdx,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final idKey = thread.chatId ?? thread.peerId ?? thread.phone;
+      if (idKey.isNotEmpty) {
+        if (path != null) {
+          await prefs.setString('qapp_wallpaper_path_$idKey', path);
+        } else {
+          await prefs.remove('qapp_wallpaper_path_$idKey');
+        }
+        if (color != null) {
+          await prefs.setInt('qapp_wallpaper_color_$idKey', color);
+        } else {
+          await prefs.remove('qapp_wallpaper_color_$idKey');
+        }
+        await prefs.setInt('qapp_theme_idx_$idKey', themeIdx);
+      }
+    } catch (_) {}
+  }
+
   void _call(bool video) {
     final page = video
         ? VideoCallScreen(
@@ -31,12 +145,16 @@ class _ContactScreenState extends State<ContactScreen> {
             colorIndex: thread.colorIndex,
             photo: thread.photo,
             status: S.of(context).callStatus(thread.header),
+            recipientId: thread.peerId,
+            chatId: thread.chatId,
           )
         : VoiceCallScreen(
             name: thread.header,
             colorIndex: thread.colorIndex,
             photo: thread.photo,
             status: S.of(context).callStatus(thread.header),
+            recipientId: thread.peerId,
+            chatId: thread.chatId,
           );
     Navigator.of(context).push(qRoute(page));
   }
@@ -96,7 +214,11 @@ class _ContactScreenState extends State<ContactScreen> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    const Icon(Icons.star_rounded, color: Colors.amber, size: 22),
+                    const Icon(
+                      Icons.star_rounded,
+                      color: Colors.amber,
+                      size: 22,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       'Starred Messages (${starred.length})',
@@ -124,13 +246,79 @@ class _ContactScreenState extends State<ContactScreen> {
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: starred.length,
-                      separatorBuilder: (_, _) => Divider(color: AppColors.line),
+                      separatorBuilder: (_, _) =>
+                          Divider(color: AppColors.line),
                       itemBuilder: (context, index) {
                         final msg = starred[index];
+                        Widget? mediaLeading;
+                        final isImg =
+                            msg.kind == ChatKind.image ||
+                            (msg.fileUrl != null &&
+                                msg.fileUrl!.isNotEmpty &&
+                                (msg.fileUrl!.endsWith('.jpg') ||
+                                    msg.fileUrl!.endsWith('.jpeg') ||
+                                    msg.fileUrl!.endsWith('.png') ||
+                                    msg.fileUrl!.endsWith('.webp'))) ||
+                            msg.bytes != null ||
+                            (msg.path != null && File(msg.path!).existsSync());
+
+                        if (isImg) {
+                          Widget imgContent;
+                          if (msg.bytes != null) {
+                            imgContent = Image.memory(
+                              msg.bytes!,
+                              fit: BoxFit.cover,
+                            );
+                          } else if (msg.path != null &&
+                              File(msg.path!).existsSync()) {
+                            imgContent = Image.file(
+                              File(msg.path!),
+                              fit: BoxFit.cover,
+                            );
+                          } else {
+                            final rawUrl =
+                                (msg.fileUrl != null && msg.fileUrl!.isNotEmpty)
+                                ? msg.fileUrl!
+                                : (isImageUrl(msg.text) ? msg.text : '');
+                            imgContent = rawUrl.isNotEmpty
+                                ? Image.network(
+                                    rawUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (ctx, err, stack) =>
+                                        const Icon(
+                                          Icons.image_rounded,
+                                          color: Colors.grey,
+                                        ),
+                                  )
+                                : const Icon(
+                                    Icons.image_rounded,
+                                    color: AppColors.accent,
+                                  );
+                          }
+                          mediaLeading = Container(
+                            width: 50,
+                            height: 50,
+                            clipBehavior: Clip.antiAlias,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              color: AppColors.card,
+                              border: Border.all(color: AppColors.line),
+                            ),
+                            child: imgContent,
+                          );
+                        }
+
                         return ListTile(
-                          contentPadding: EdgeInsets.zero,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 4,
+                          ),
+                          leading: mediaLeading,
                           title: Text(
-                            msg.text.isNotEmpty ? msg.text : '[Media]',
+                            msg.text.isNotEmpty
+                                ? msg.text
+                                : (isImg ? 'Photo' : '[Media]'),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: AppColors.ink,
                               fontWeight: FontWeight.w600,
@@ -138,10 +326,16 @@ class _ContactScreenState extends State<ContactScreen> {
                           ),
                           subtitle: Text(
                             '${msg.mine ? "You" : thread.name} • ${msg.time ?? ""}',
-                            style: TextStyle(color: AppColors.inkSoft, fontSize: 12),
+                            style: TextStyle(
+                              color: AppColors.inkSoft,
+                              fontSize: 12,
+                            ),
                           ),
                           trailing: IconButton(
-                            icon: const Icon(Icons.star_rounded, color: Colors.amber),
+                            icon: const Icon(
+                              Icons.star_rounded,
+                              color: Colors.amber,
+                            ),
                             onPressed: () {
                               setState(() => msg.starred = false);
                               ChatBook.instance.ping();
@@ -213,18 +407,24 @@ class _ContactScreenState extends State<ContactScreen> {
                     borderRadius: BorderRadius.circular(14),
                     onTap: () async {
                       Navigator.pop(context);
-                      final file = await FilePicker.pickFile(type: FileType.image);
+                      final file = await FilePicker.pickFile(
+                        type: FileType.image,
+                      );
                       if (file != null && file.path != null) {
                         setState(() {
                           thread.wallpaperPath = file.path;
                           thread.wallpaperColor = null;
                         });
+                        _saveWallpaperPrefs(file.path, null, thread.themeIndex);
                         ChatBook.instance.ping();
                         _toast('Wallpaper updated from Gallery!');
                       }
                     },
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
                       child: Row(
                         children: [
                           Container(
@@ -233,7 +433,11 @@ class _ContactScreenState extends State<ContactScreen> {
                               color: AppColors.accent.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Icon(Icons.photo_library_rounded, color: AppColors.accent, size: 22),
+                            child: const Icon(
+                              Icons.photo_library_rounded,
+                              color: AppColors.accent,
+                              size: 22,
+                            ),
                           ),
                           const SizedBox(width: 14),
                           Expanded(
@@ -250,12 +454,18 @@ class _ContactScreenState extends State<ContactScreen> {
                                 ),
                                 Text(
                                   'Set custom image as chat wallpaper',
-                                  style: TextStyle(color: AppColors.faint, fontSize: 12),
+                                  style: TextStyle(
+                                    color: AppColors.faint,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          Icon(Icons.chevron_right_rounded, color: AppColors.faint),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: AppColors.faint,
+                          ),
                         ],
                       ),
                     ),
@@ -279,8 +489,10 @@ class _ContactScreenState extends State<ContactScreen> {
                     separatorBuilder: (_, _) => const SizedBox(width: 12),
                     itemBuilder: (context, i) {
                       final c = solidColors[i];
-                      final isSelected = thread.wallpaperPath == null &&
-                          (thread.wallpaperColor == c.$1 || (thread.wallpaperColor == null && i == 0));
+                      final isSelected =
+                          thread.wallpaperPath == null &&
+                          (thread.wallpaperColor == c.$1 ||
+                              (thread.wallpaperColor == null && i == 0));
                       return GestureDetector(
                         onTap: () {
                           setState(() {
@@ -288,6 +500,7 @@ class _ContactScreenState extends State<ContactScreen> {
                             thread.wallpaperColor = c.$1;
                             thread.themeIndex = i;
                           });
+                          _saveWallpaperPrefs(null, c.$1, i);
                           ChatBook.instance.ping();
                           Navigator.pop(context);
                           _toast('Wallpaper color applied');
@@ -299,7 +512,9 @@ class _ContactScreenState extends State<ContactScreen> {
                             color: Color(c.$1),
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: isSelected ? AppColors.accent : Colors.white24,
+                              color: isSelected
+                                  ? AppColors.accent
+                                  : Colors.white24,
                               width: isSelected ? 3 : 1,
                             ),
                             boxShadow: isSelected
@@ -312,7 +527,11 @@ class _ContactScreenState extends State<ContactScreen> {
                                 : null,
                           ),
                           child: isSelected
-                              ? const Icon(Icons.check_rounded, color: AppColors.accent, size: 24)
+                              ? const Icon(
+                                  Icons.check_rounded,
+                                  color: AppColors.accent,
+                                  size: 24,
+                                )
                               : null,
                         ),
                       );
@@ -320,17 +539,26 @@ class _ContactScreenState extends State<ContactScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                if (thread.wallpaperPath != null || thread.wallpaperColor != null)
+                if (thread.wallpaperPath != null ||
+                    thread.wallpaperColor != null)
                   Center(
                     child: TextButton.icon(
-                      icon: Icon(Icons.refresh_rounded, color: AppColors.faint, size: 18),
-                      label: Text('Reset to Default Wallpaper', style: TextStyle(color: AppColors.faint)),
+                      icon: Icon(
+                        Icons.refresh_rounded,
+                        color: AppColors.faint,
+                        size: 18,
+                      ),
+                      label: Text(
+                        'Reset to Default Wallpaper',
+                        style: TextStyle(color: AppColors.faint),
+                      ),
                       onPressed: () {
                         setState(() {
                           thread.wallpaperPath = null;
                           thread.wallpaperColor = null;
                           thread.themeIndex = 0;
                         });
+                        _saveWallpaperPrefs(null, null, 0);
                         ChatBook.instance.ping();
                         Navigator.pop(context);
                         _toast('Wallpaper reset to default');
@@ -350,15 +578,32 @@ class _ContactScreenState extends State<ContactScreen> {
 
   Future<void> _export() async {
     final s = S.of(context);
-    final text = thread.messages
-        .map((message) {
-          final who = message.mine ? s.you : thread.name;
-          return '$who: ${message.text}';
-        })
-        .join('\n');
+    final buffer = StringBuffer();
+    buffer.writeln('Qapp Chat Export: ${thread.name}');
+    buffer.writeln(
+      'Date: ${DateTime.now().toLocal().toString().split('.')[0]}',
+    );
+    buffer.writeln('----------------------------------------');
+    for (final message in thread.messages) {
+      final who = message.mine ? s.you : thread.name;
+      final timeStr = message.time ?? '';
+      buffer.writeln('[$timeStr] $who: ${message.text}');
+    }
+    buffer.writeln('----------------------------------------');
+    buffer.writeln('Total messages: ${thread.messages.length}');
+
+    final text = buffer.toString();
     await Clipboard.setData(ClipboardData(text: text));
+
+    try {
+      await const MethodChannel('qapp/open_file').invokeMethod('share', {
+        'text': text,
+        'title': 'Export Chat - ${thread.name}',
+      });
+    } catch (_) {}
+
     if (mounted) {
-      _toast(s.copied);
+      _toast('Chat exported and copied to clipboard');
     }
   }
 
@@ -401,10 +646,16 @@ class _ContactScreenState extends State<ContactScreen> {
           builder: (context, setDlgState) {
             return AlertDialog(
               backgroundColor: AppColors.card,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
               title: Row(
                 children: [
-                  const Icon(Icons.report_problem_rounded, color: Colors.redAccent, size: 24),
+                  const Icon(
+                    Icons.report_problem_rounded,
+                    color: Colors.redAccent,
+                    size: 24,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -430,7 +681,11 @@ class _ContactScreenState extends State<ContactScreen> {
                     const SizedBox(height: 14),
                     Text(
                       'Category',
-                      style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 13),
+                      style: TextStyle(
+                        color: AppColors.ink,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     Container(
@@ -445,13 +700,31 @@ class _ContactScreenState extends State<ContactScreen> {
                           value: category,
                           isExpanded: true,
                           dropdownColor: AppColors.card,
-                          style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            color: AppColors.ink,
+                            fontWeight: FontWeight.w600,
+                          ),
                           items: const [
-                            DropdownMenuItem(value: 'spam', child: Text('Spam or unsolicited messages')),
-                            DropdownMenuItem(value: 'harassment', child: Text('Harassment or abusive behavior')),
-                            DropdownMenuItem(value: 'inappropriate', child: Text('Inappropriate content')),
-                            DropdownMenuItem(value: 'fraud', child: Text('Scam, phishing, or fraud')),
-                            DropdownMenuItem(value: 'other', child: Text('Other')),
+                            DropdownMenuItem(
+                              value: 'spam',
+                              child: Text('Spam or unsolicited messages'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'harassment',
+                              child: Text('Harassment or abusive behavior'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'inappropriate',
+                              child: Text('Inappropriate content'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'fraud',
+                              child: Text('Scam, phishing, or fraud'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'other',
+                              child: Text('Other'),
+                            ),
                           ],
                           onChanged: (val) {
                             if (val != null) {
@@ -464,7 +737,11 @@ class _ContactScreenState extends State<ContactScreen> {
                     const SizedBox(height: 14),
                     Text(
                       'Description',
-                      style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 13),
+                      style: TextStyle(
+                        color: AppColors.ink,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     TextField(
@@ -474,7 +751,10 @@ class _ContactScreenState extends State<ContactScreen> {
                       cursorColor: AppColors.accent,
                       decoration: InputDecoration(
                         hintText: 'Describe what happened (optional)...',
-                        hintStyle: TextStyle(color: AppColors.faint, fontSize: 13),
+                        hintStyle: TextStyle(
+                          color: AppColors.faint,
+                          fontSize: 13,
+                        ),
                         filled: true,
                         fillColor: AppColors.surface,
                         border: OutlineInputBorder(
@@ -504,7 +784,10 @@ class _ContactScreenState extends State<ContactScreen> {
                         Expanded(
                           child: Text(
                             'Also block contact and delete chat',
-                            style: TextStyle(color: AppColors.ink, fontSize: 13),
+                            style: TextStyle(
+                              color: AppColors.ink,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
                       ],
@@ -515,15 +798,26 @@ class _ContactScreenState extends State<ContactScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, false),
-                  child: Text(S.of(context).cancel, style: TextStyle(color: AppColors.faint)),
+                  child: Text(
+                    S.of(context).cancel,
+                    style: TextStyle(color: AppColors.faint),
+                  ),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.redAccent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                   onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Submit Report', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  child: const Text(
+                    'Submit Report',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ],
             );
@@ -540,7 +834,9 @@ class _ContactScreenState extends State<ContactScreen> {
         targetUserId: thread.peerId!,
         category: category,
         reason: category,
-        description: desc.isNotEmpty ? desc : 'Reported from mobile contact screen',
+        description: desc.isNotEmpty
+            ? desc
+            : 'Reported from mobile contact screen',
         block: alsoBlock,
       );
     }
@@ -615,11 +911,43 @@ class _ContactScreenState extends State<ContactScreen> {
                 ),
               ),
               const SizedBox(height: 4),
-              Text(
-                thread.phone,
-                textAlign: TextAlign.center,
-                style: AppText.subtitle,
-              ),
+              if (thread.phone.trim().isNotEmpty)
+                Center(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: thread.phone.trim()),
+                      );
+                      _toast('Phone number copied!');
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            thread.phone,
+                            textAlign: TextAlign.center,
+                            style: AppText.subtitle.copyWith(
+                              color: AppColors.accent,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Icon(
+                            Icons.copy_rounded,
+                            size: 14,
+                            color: AppColors.accent,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               const SizedBox(height: 4),
               Text(
                 thread.about,
@@ -701,8 +1029,8 @@ class _ContactScreenState extends State<ContactScreen> {
                   value: thread.muted,
                   activeThumbColor: AppColors.accent,
                   onChanged: (value) {
-                    setState(() => thread.muted = value);
-                    ChatBook.instance.ping();
+                    ChatBook.instance.toggleMute(thread);
+                    setState(() {});
                   },
                 ),
               ),
@@ -727,15 +1055,36 @@ class _ContactScreenState extends State<ContactScreen> {
                   ],
                 ),
               ),
-              if (thread.phone.trim().isEmpty && thread.groups.isNotEmpty) ...[
+              if (thread.isGroup || thread.phone.trim().isEmpty) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(6, 6, 6, 8),
-                  child: Text(
-                    '${thread.groups.length} ${s.members}',
-                    style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w800),
+                  child: Row(
+                    children: [
+                      Text(
+                        '${_groupMembers.isNotEmpty ? _groupMembers.length : thread.groups.length} ${s.members}',
+                        style: TextStyle(
+                          color: AppColors.ink,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (_loadingMembers)
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.accent,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-                for (final name in thread.groups) _member(name),
+                if (_groupMembers.isNotEmpty)
+                  for (final m in _groupMembers) _buildGroupMemberTile(m)
+                else if (thread.groups.isNotEmpty)
+                  for (final name in thread.groups) _member(name),
               ] else if (thread.groups.isNotEmpty) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(6, 6, 6, 8),
@@ -759,12 +1108,17 @@ class _ContactScreenState extends State<ContactScreen> {
                 thread.favourite
                     ? Icons.favorite_rounded
                     : Icons.favorite_border_rounded,
-                s.addFav,
+                thread.favourite ? 'Remove from Favourites' : s.addFav,
                 null,
                 null,
                 onTap: () {
-                  setState(() => thread.favourite = !thread.favourite);
-                  ChatBook.instance.ping();
+                  ChatBook.instance.toggleFavourite(thread);
+                  setState(() {});
+                  _toast(
+                    thread.favourite
+                        ? 'Added to Favourites'
+                        : 'Removed from Favourites',
+                  );
                 },
               ),
               _tile(
@@ -852,10 +1206,79 @@ class _ContactScreenState extends State<ContactScreen> {
             photo: person?.photo,
             bytes: person?.photoBytes,
           ),
-          title: Text(name, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700)),
+          title: Text(
+            name,
+            style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700),
+          ),
           subtitle: person == null || person.phone.isEmpty
               ? null
               : Text(person.phone, style: AppText.subtitle),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupMemberTile(Map<String, dynamic> member) {
+    final name = member['name']?.toString() ?? 'Member';
+    final phone = member['phone']?.toString() ?? '';
+    final role = member['role']?.toString() ?? 'member';
+    final photo =
+        member['photoUrl']?.toString() ?? member['profileImageUrl']?.toString();
+    final isAdmin = role == 'admin';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(16),
+        child: ListTile(
+          leading: QAvatar(name: name, size: 44, colorIndex: 2, photo: photo),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.ink,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (isAdmin)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'Group Admin',
+                    style: TextStyle(
+                      color: AppColors.accent,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          subtitle: phone.isNotEmpty
+              ? Text(phone, style: AppText.subtitle)
+              : null,
+          trailing: IconButton(
+            icon: const Icon(
+              Icons.person_remove_rounded,
+              color: Colors.redAccent,
+              size: 20,
+            ),
+            tooltip: 'Remove member',
+            onPressed: () => _removeMember(member),
+          ),
         ),
       ),
     );
@@ -878,10 +1301,7 @@ class _ContactScreenState extends State<ContactScreen> {
           leading: Icon(icon, color: AppColors.ink),
           title: Text(
             title,
-            style: TextStyle(
-              color: AppColors.ink,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700),
           ),
           subtitle: subtitle == null
               ? null

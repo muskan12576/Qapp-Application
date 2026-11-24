@@ -42,7 +42,9 @@ class ContactsService {
     }
   }
 
-  Future<List<ContactItem>> fetchContacts({List<Map<String, dynamic>>? registeredPeers}) async {
+  Future<List<ContactItem>> fetchContacts({
+    List<Map<String, dynamic>>? registeredPeers,
+  }) async {
     try {
       final raw = await _channel.invokeListMethod<Map>('getContacts');
       if (raw == null) return [];

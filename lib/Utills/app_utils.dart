@@ -121,4 +121,3 @@ String formatLastSeen(DateTime? dt) {
     return '${local.day}/${local.month}/${local.year} at $timeStr';
   }
 }
-

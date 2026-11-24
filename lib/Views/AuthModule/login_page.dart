@@ -59,10 +59,12 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final data = await AuthController.instance.sendPhone(digits);
       if (!mounted) return;
+      final otp = data['otp']?.toString() ?? '';
       Navigator.of(context).push(qRoute(OtpScreen(
         phone: shown,
         rawPhone: digits,
         phoneToken: data['token']?.toString() ?? '',
+        initialOtp: otp,
       )));
     } on ApiException catch (err) {
       if (mounted) setState(() => _error = err.message);
@@ -113,7 +115,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                   const SizedBox(height: 120),
                   PrimaryButton(
-                    label: _busy ? '...' : S.of(context).sendOtp,
+                    label: _busy ? S.of(context).signingIn : S.of(context).sendOtp,
                     onPressed: _busy ? () {} : _send,
                   ),
                 ],

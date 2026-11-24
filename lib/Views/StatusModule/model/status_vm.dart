@@ -104,27 +104,35 @@ class StatusViewModel extends BaseViewModel {
   }
 
   Future<Map<String, dynamic>> getStatusFeed() async {
-    final res = await _api.getRequest(AppConstants.statusFeedApi);
-    if (res != null && res.statusCode == 200) {
-      final json = jsonDecode(res.body);
-      final data = Map<String, dynamic>.from(json['data'] ?? {});
-      final others = data['others'] as List? ?? [];
-      otherStatuses = others.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-      if (data['myStatus'] is Map) {
-        myStatus = Map<String, dynamic>.from(data['myStatus'] as Map);
+    try {
+      final res = await _api.getRequest(AppConstants.statusFeedApi);
+      if (res != null && res.statusCode == 200) {
+        final json = jsonDecode(res.body);
+        final data = Map<String, dynamic>.from(json['data'] ?? {});
+        final others = data['others'] as List? ?? [];
+        otherStatuses = others.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        if (data['myStatus'] is Map) {
+          myStatus = Map<String, dynamic>.from(data['myStatus'] as Map);
+        }
+        notifyListeners();
+        return data;
       }
-      notifyListeners();
-      return data;
+    } catch (e) {
+      debugPrint('StatusViewModel getStatusFeed network error: $e');
     }
     return {};
   }
 
   Future<List<Map<String, dynamic>>> getMyStatuses() async {
-    final res = await _api.getRequest(AppConstants.statusMyApi);
-    if (res != null && res.statusCode == 200) {
-      final json = jsonDecode(res.body);
-      final list = json['data']?['statuses'] as List? ?? [];
-      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    try {
+      final res = await _api.getRequest(AppConstants.statusMyApi);
+      if (res != null && res.statusCode == 200) {
+        final json = jsonDecode(res.body);
+        final list = json['data']?['statuses'] as List? ?? [];
+        return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+    } catch (e) {
+      debugPrint('StatusViewModel getMyStatuses network error: $e');
     }
     return [];
   }

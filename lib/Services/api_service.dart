@@ -13,7 +13,6 @@ import 'package:qapp/Utills/app_constants.dart'
 import 'package:qapp/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-import 'package:qapp/Utills/app_utils.dart';
 import 'package:qapp/Utills/token_storage.dart';
 
 // --- API Exceptions ---
@@ -149,7 +148,28 @@ class ApiBaseService {
     }
   }
 
+  static DateTime? _lastNetworkErrorPopup;
+
+  static void showNetworkErrorDialog(String message) {
+    final now = DateTime.now();
+    if (_lastNetworkErrorPopup != null &&
+        now.difference(_lastNetworkErrorPopup!).inSeconds < 5) {
+      return;
+    }
+    _lastNetworkErrorPopup = now;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppDialog.show(
+        type: DialogType.error,
+        title: "Network Error",
+        message:
+            "Server ya internet se connect nahi ho pa rahe hain. Kripya apna connection check karein.",
+        confirmText: "Theek hai",
+      );
+    });
+  }
+
   ApiException handleNetworkError(Object e, String method) {
+    showNetworkErrorDialog(e.toString());
     if (e is SocketException) {
       return ApiException('No Internet connection');
     } else if (e is HttpException) {
@@ -171,6 +191,9 @@ class ApiBaseService {
     return ApiException('Unexpected error: $e');
   }
 
+  static final Set<String> _reportedErrorKeys = {};
+  static DateTime? _lastReportTime;
+
   Future<void> reportError({
     required String message,
     String? service,
@@ -179,6 +202,24 @@ class ApiBaseService {
     String? screen,
   }) async {
     try {
+      // Ignore harmless framework painting/layout hints that spam on frame redraws
+      if (message.contains('ListTile background color or ink splashes') ||
+          message.contains('paint background') ||
+          message.contains('overflowed by')) {
+        return;
+      }
+
+      // Deduplicate: Don't spam identical errors
+      final key = '${service ?? "app"}_${message.trim()}';
+      final now = DateTime.now();
+      if (_reportedErrorKeys.contains(key)) {
+        if (_lastReportTime != null && now.difference(_lastReportTime!).inSeconds < 60) {
+          return;
+        }
+      }
+      _reportedErrorKeys.add(key);
+      _lastReportTime = now;
+
       final fullUrl = resolveUrl(AppConstants.errorReportApi);
       final userId = TokenStorage.instance.userId;
       final userName = TokenStorage.instance.name;
@@ -242,7 +283,7 @@ class ApiBaseService {
         method: "POST",
         url: fullUrl,
         headers: headers,
-        body: {'refresh_token': '******'},
+        body: body,
         response: null,
         error: '$err',
       );
@@ -254,7 +295,7 @@ class ApiBaseService {
       method: "POST",
       url: fullUrl,
       headers: headers,
-      body: {'refresh_token': '******'},
+      body: body,
       response: response,
     );
 
@@ -377,6 +418,7 @@ class ApiBaseService {
       headers = {'Content-Type': 'application/json'};
     }
     final requestId = _uuid.v4();
+    _logApiStart(method: "GET", url: uri.toString(), headers: headers, body: null);
 
     try {
       final response = await http
@@ -442,6 +484,7 @@ class ApiBaseService {
     } else {
       headers = {"Content-Type": "application/json"};
     }
+    _logApiStart(method: "POST", url: fullUrl, headers: headers, body: body);
 
     try {
       final response = await http
@@ -559,6 +602,7 @@ class ApiBaseService {
         ? await getHeaders()
         : {"Content-Type": "application/json"};
     final requestId = _uuid.v4();
+    _logApiStart(method: "PUT", url: fullUrl, headers: headers, body: body);
 
     try {
       final response = await http
@@ -616,6 +660,7 @@ class ApiBaseService {
         ? await getHeaders()
         : {"Content-Type": "application/json"};
     final requestId = _uuid.v4();
+    _logApiStart(method: "PATCH", url: fullUrl, headers: headers, body: body);
 
     try {
       final response = await http
@@ -670,6 +715,7 @@ class ApiBaseService {
 
     final headers = await getHeaders();
     final requestId = _uuid.v4();
+    _logApiStart(method: "DELETE", url: fullUrl, headers: headers, body: body);
 
     try {
       final response = await http
@@ -706,6 +752,27 @@ class ApiBaseService {
     }
   }
 
+  void _logApiStart({
+    required String method,
+    required String url,
+    Map<String, String>? headers,
+    Map<String, dynamic>? body,
+  }) {
+    final auth = headers?['Authorization'] ?? headers?['authorization'] ?? '';
+    final authDisplay = auth.isNotEmpty
+        ? (auth.length > 35 ? '${auth.substring(0, 35)}...' : auth)
+        : '(none)';
+    print('━━━━━━━━━━━━━━━━━━━━ [API REQUEST] ━━━━━━━━━━━━━━━━━━━━');
+    print('🚀 Method   : $method');
+    print('🔗 URL      : $url');
+    print('🔑 Auth     : $authDisplay');
+    print('📋 Headers  : ${jsonEncode(headers ?? {})}');
+    if (body != null && body.isNotEmpty) {
+      print('📤 Request  : ${jsonEncode(body)}');
+    }
+    print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  }
+
   void _logApiCall({
     required String requestId,
     required String method,
@@ -715,50 +782,29 @@ class ApiBaseService {
     http.Response? response,
     String? error,
   }) {
-    final border = "═" * 60;
-    final isResponse = response != null;
+    final auth = headers?['Authorization'] ?? headers?['authorization'] ?? '';
+    final authDisplay = auth.isNotEmpty
+        ? (auth.length > 35 ? '${auth.substring(0, 35)}...' : auth)
+        : '(none)';
 
-    final buffer = StringBuffer();
-
-    if (isResponse) {
-      buffer.writeln("┌$border");
-      buffer.writeln("│  API CALL COMPLETED [$method] ");
-      buffer.writeln("│  URL: $url");
-      if (headers != null) {
-        buffer.writeln("│  Headers: ${jsonEncode(headers)}");
-      }
-      if (body != null) {
-        buffer.writeln("│  Request Body: ${jsonEncode(body)}");
-      }
-      buffer.writeln("│  Status: ${response.statusCode}");
-      buffer.writeln("│  Response Body: ${response.body}");
-      buffer.writeln("│  ${DateTime.now().toIso8601String()}");
-      buffer.writeln("└$border");
+    print('━━━━━━━━━━━━━━━━━━━━ [API RESPONSE] ━━━━━━━━━━━━━━━━━━━');
+    print('🌐 Method   : $method');
+    print('🔗 URL      : $url');
+    print('🔑 Auth     : $authDisplay');
+    if (response != null) {
+      final status = response.statusCode;
+      final ok = status >= 200 && status < 300;
+      final icon = ok ? '✅' : '⚠️';
+      print('$icon Status   : $status');
+      print('📄 Response : ${response.body.length > 1000 ? '${response.body.substring(0, 1000)}…' : response.body}');
     } else if (error != null) {
-      buffer.writeln("┌$border");
-      buffer.writeln("│  API CALL FAILED [$method] ");
-      buffer.writeln("│  URL: $url");
-      if (headers != null) {
-        buffer.writeln("│  Headers: ${jsonEncode(headers)}");
-      }
-      if (body != null) {
-        buffer.writeln("│  Request Body: ${jsonEncode(body)}");
-      }
-      buffer.writeln("│  Error: $error");
-      buffer.writeln("│  ${DateTime.now().toIso8601String()}");
-      buffer.writeln("└$border");
+      print('❌ Error    : $error');
     }
-
-    final output = buffer.toString();
-    log(output);
-    if (output.isNotEmpty) {
-      debugLog(output);
-    }
+    print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   }
 
   void _log(String message) {
-    log(" API LOG: $message");
-    debug("API LOG: $message");
+    print("API: $message");
   }
 }
 
@@ -884,328 +930,3 @@ class AppDialog {
   }
 }
 
-// --- Common Unified ApiService ---
-
-class ApiService {
-  ApiService._();
-  static final ApiService instance = ApiService._();
-  factory ApiService() => instance;
-
-  final ApiBaseService _api = ApiBaseService();
-  ApiBaseService get base => _api;
-
-  // --- Auth APIs ---
-
-  Future<Map<String, dynamic>> sendPhone(String phone) async {
-    final res = await _api.postRequest(AppConstants.sendPhoneApi, {
-      'phone': phone,
-    }, sendToken: false);
-    if (res == null) throw ApiException('Server tak nahi pahunch sake');
-    final data = _api.handleHttpResponse(res) as Map<String, dynamic>;
-    final dataMap = Map<String, dynamic>.from(data['data'] ?? data);
-    final otp = dataMap.remove('otp')?.toString() ?? '';
-    await sendSmsOtp(phone: phone, otp: otp);
-    return dataMap;
-  }
-
-  Future<Map<String, dynamic>> verifyOtp({
-    required String phoneToken,
-    required String otp,
-  }) async {
-    final res = await _api.postRequest(AppConstants.verifyOtpApi, {
-      'otp': otp,
-    }, token: phoneToken);
-    if (res == null) throw ApiException('Server tak nahi pahunch sake');
-    final body = _api.handleHttpResponse(res);
-    return Map<String, dynamic>.from(body['data'] ?? body);
-  }
-
-  Future<Map<String, dynamic>> saveName({
-    required String setupToken,
-    required String name,
-    required String about,
-  }) async {
-    final res = await _api.postRequest(AppConstants.saveNameApi, {
-      'name': name,
-      'about': about,
-    }, token: setupToken);
-    if (res == null) throw ApiException('Server tak nahi pahunch sake');
-    final body = _api.handleHttpResponse(res);
-    return Map<String, dynamic>.from(body['data'] ?? body);
-  }
-
-  Future<Map<String, dynamic>> savePhoto({
-    required String setupToken,
-    required List<int> bytes,
-  }) async {
-    final png = bytes.length > 4 && bytes[0] == 0x89 && bytes[1] == 0x50;
-    final file = http.MultipartFile.fromBytes(
-      'photo',
-      bytes,
-      filename: png ? 'profile.png' : 'profile.jpg',
-    );
-    final res = await _api.postMultipartRequest(
-      AppConstants.savePhotoApi,
-      fields: {},
-      files: [file],
-      token: setupToken,
-    );
-    if (res == null) throw ApiException('Photo upload nahi ho payi');
-    final body = _api.handleHttpResponse(res);
-    return Map<String, dynamic>.from(body['data'] ?? body);
-  }
-
-  Future<Map<String, dynamic>> skipPhoto(String setupToken) async {
-    final res = await _api.postRequest(
-      AppConstants.skipPhotoApi,
-      {},
-      token: setupToken,
-    );
-    if (res == null) throw ApiException('Server tak nahi pahunch sake');
-    final body = _api.handleHttpResponse(res);
-    return Map<String, dynamic>.from(body['data'] ?? body);
-  }
-
-  Future<void> logout() async {
-    try {
-      await _api.postRequest(AppConstants.logoutApi, {});
-    } catch (_) {}
-  }
-
-  Future<void> sendSmsOtp({required String phone, required String otp}) async {
-    if (otp.isEmpty) return;
-    try {
-      final clean = phone.replaceAll(RegExp(r'\D'), '');
-      final ten = clean.length >= 10
-          ? clean.substring(clean.length - 10)
-          : clean;
-      final uri = Uri.parse(AppConstants.sendOtpUrl).replace(
-        queryParameters: {
-          'authkey': AppConstants.otpAuthKey,
-          'mobile': ten,
-          'country_code': '91',
-          'sid': '15548',
-          'otp': otp,
-        },
-      );
-      await _api.getRequest(uri.toString(), sendToken: false);
-    } catch (err) {
-      _api._log('[SMS] Error sending OTP SMS: $err');
-    }
-  }
-
-  // --- Chat APIs ---
-
-  Future<List<Map<String, dynamic>>> getConversations() async {
-    final res = await _api.getRequest(AppConstants.chatConversations);
-    if (res != null && res.statusCode == 200) {
-      final json = jsonDecode(res.body);
-      final list = json['data']?['conversations'] as List? ?? [];
-      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    }
-    return [];
-  }
-
-  Future<Map<String, dynamic>?> openDirectChat(String userId) async {
-    final res = await _api.postRequest(AppConstants.chatDirect, {
-      'userId': userId,
-    });
-    if (res != null && (res.statusCode == 200 || res.statusCode == 201)) {
-      final json = jsonDecode(res.body);
-      return Map<String, dynamic>.from(json['data']?['chat'] ?? {});
-    }
-    return null;
-  }
-
-  Future<List<Map<String, dynamic>>> getMessages(
-    String chatId, {
-    int limit = 40,
-    String? before,
-  }) async {
-    final query = {'limit': limit.toString()};
-    if (before != null) query['before'] = before;
-    final res = await _api.getRequest(
-      AppConstants.chatMessagesApi(chatId),
-      queryParams: query,
-    );
-    if (res != null && res.statusCode == 200) {
-      final json = jsonDecode(res.body);
-      final list = json['data']?['messages'] as List? ?? [];
-      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    }
-    return [];
-  }
-
-  Future<Map<String, dynamic>?> sendMessage(
-    String chatId, {
-    String? body,
-    String kind = 'text',
-    String? clientId,
-    String? replyTo,
-    Map<String, dynamic>? fileInfo,
-  }) async {
-    final payload = <String, dynamic>{'body': body, 'kind': kind};
-    if (clientId != null) payload['clientId'] = clientId;
-    if (replyTo != null) payload['replyTo'] = replyTo;
-    if (fileInfo != null) payload['fileInfo'] = fileInfo;
-
-    final res = await _api.postRequest(
-      AppConstants.chatMessagesApi(chatId),
-      payload,
-    );
-    if (res != null && (res.statusCode == 200 || res.statusCode == 201)) {
-      final json = jsonDecode(res.body);
-      return Map<String, dynamic>.from(json['data']?['message'] ?? {});
-    }
-    return null;
-  }
-
-  Future<bool> markAsRead(String chatId) async {
-    final res = await _api.postRequest(AppConstants.chatReadApi(chatId), {});
-    return res != null && res.statusCode == 200;
-  }
-
-  Future<bool> editMessage(String messageId, String newBody) async {
-    final res = await _api.putRequest(AppConstants.chatMessageApi(messageId), {
-      'body': newBody,
-    });
-    return res != null && res.statusCode == 200;
-  }
-
-  Future<bool> deleteMessage(
-    String messageId, {
-    bool deleteForEveryone = false,
-  }) async {
-    final fullUrl = _api._resolveUrl(
-      '${AppConstants.chatMessageApi(messageId)}?everyone=$deleteForEveryone',
-    );
-    final res = await _api.deleteRequest(fullUrl);
-    return res != null && res.statusCode == 200;
-  }
-
-  Future<List<Map<String, dynamic>>> getPeers() async {
-    final res = await _api.getRequest(AppConstants.chatPeers);
-    if (res != null && res.statusCode == 200) {
-      final json = jsonDecode(res.body);
-      final list = json['data']?['peers'] as List? ?? [];
-      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    }
-    return [];
-  }
-
-  Future<int> getUnreadCount() async {
-    final res = await _api.getRequest(AppConstants.chatUnreadCount);
-    if (res != null && res.statusCode == 200) {
-      final json = jsonDecode(res.body);
-      return json['data']?['unreadCount'] as int? ?? 0;
-    }
-    return 0;
-  }
-
-  // --- Group APIs ---
-
-  Future<Map<String, dynamic>?> createGroup({
-    required String title,
-    String? photoUrl,
-    List<String> memberIds = const [],
-  }) async {
-    final payload = <String, dynamic>{'title': title, 'memberIds': memberIds};
-    if (photoUrl != null) payload['photoUrl'] = photoUrl;
-    final res = await _api.postRequest(AppConstants.groupApi, payload);
-    if (res != null && (res.statusCode == 200 || res.statusCode == 201)) {
-      final json = jsonDecode(res.body);
-      return Map<String, dynamic>.from(json['data']?['group'] ?? {});
-    }
-    return null;
-  }
-
-  Future<Map<String, dynamic>?> getGroupDetails(String groupId) async {
-    final res = await _api.getRequest(AppConstants.groupDetailsApi(groupId));
-    if (res != null && res.statusCode == 200) {
-      final json = jsonDecode(res.body);
-      return Map<String, dynamic>.from(json['data']?['group'] ?? {});
-    }
-    return null;
-  }
-
-  // --- Media Upload APIs ---
-
-  Future<Map<String, dynamic>?> uploadMedia({
-    required List<int> bytes,
-    required String fileName,
-    required String type,
-    String? chatId,
-    String? caption,
-  }) async {
-    final fields = <String, String>{};
-    if (chatId != null) fields['chatId'] = chatId;
-    if (caption != null) fields['caption'] = caption;
-    final files = [
-      http.MultipartFile.fromBytes('file', bytes, filename: fileName),
-    ];
-    final res = await _api.postMultipartRequest(
-      AppConstants.mediaTypeUploadApi(type),
-      fields: fields,
-      files: files,
-    );
-    if (res != null && (res.statusCode == 200 || res.statusCode == 201)) {
-      final json = jsonDecode(res.body);
-      return Map<String, dynamic>.from(json['data'] ?? {});
-    }
-    return null;
-  }
-
-  // --- Status APIs ---
-
-  Future<Map<String, dynamic>?> createStatus({
-    required String kind,
-    String? mediaUrl,
-    String? caption,
-  }) async {
-    final payload = <String, dynamic>{'kind': kind};
-    if (mediaUrl != null) payload['mediaUrl'] = mediaUrl;
-    if (caption != null) payload['caption'] = caption;
-    final res = await _api.postRequest(AppConstants.statusApi, payload);
-    if (res != null && (res.statusCode == 200 || res.statusCode == 201)) {
-      final json = jsonDecode(res.body);
-      return Map<String, dynamic>.from(json['data']?['status'] ?? {});
-    }
-    return null;
-  }
-
-  Future<Map<String, dynamic>> getStatusFeed() async {
-    final res = await _api.getRequest(AppConstants.statusFeedApi);
-    if (res != null && res.statusCode == 200) {
-      final json = jsonDecode(res.body);
-      return Map<String, dynamic>.from(json['data'] ?? {});
-    }
-    return {};
-  }
-
-  Future<bool> viewStatus(String statusId) async {
-    final res = await _api.postRequest(
-      AppConstants.statusViewApi(statusId),
-      {},
-    );
-    return res != null && res.statusCode == 200;
-  }
-
-  // --- User Block / Unblock APIs ---
-
-  Future<bool> blockUser(String userId) async {
-    final res = await _api.postRequest(AppConstants.userBlockApi, {
-      'userId': userId,
-    });
-    return res != null && res.statusCode == 200;
-  }
-
-  Future<bool> unblockUser(String userId) async {
-    final res = await _api.postRequest(AppConstants.userUnblockApi, {
-      'userId': userId,
-    });
-    return res != null && res.statusCode == 200;
-  }
-}
-
-// Typedef so legacy ChatApiService calls resolve to this unified singleton
-typedef ChatApiService = ApiService;

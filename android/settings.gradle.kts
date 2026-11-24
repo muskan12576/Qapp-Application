@@ -26,33 +26,37 @@ plugins {
 
 include(":app")
 
-// zego_zim 3.3.0+1 still calls jcenter() (removed in Gradle 9) and pins AGP 4.1.0.
-// Rewrite that cached build file before Gradle evaluates the plugin. Safe to re-run
-// after a fresh `flutter pub get`, which restores the original file.
+// Patch plugins for Gradle 9 and Android compileSdk compatibility
 run {
-    val zegoProject = runCatching { project(":zego_zim") }.getOrNull() ?: return@run
-    val zegoBuild = zegoProject.projectDir.resolve("build.gradle")
-    if (!zegoBuild.isFile) return@run
-    val original = zegoBuild.readText().replace("\r\n", "\n")
-    if (!original.contains("jcenter()") && !original.contains("com.android.tools.build:gradle:4.1.0")) {
-        return@run
-    }
-    val patched =
-        original
-            .replace("jcenter()", "mavenCentral()")
-            .replace(
+    val pluginList = mutableSetOf(":zego_zim", ":zego_express_engine", ":flutter_ringtone_player")
+    rootProject.children.forEach { pluginList.add(it.path) }
+    pluginList.forEach { pluginName ->
+        if (pluginName == ":app") return@forEach
+        val proj = runCatching { project(pluginName) }.getOrNull() ?: return@forEach
+        val buildFile = proj.projectDir.resolve("build.gradle")
+        if (!buildFile.isFile) return@forEach
+        val original = buildFile.readText().replace("\r\n", "\n")
+        var patched = original
+        if (patched.contains("jcenter()")) {
+            patched = patched.replace("jcenter()", "mavenCentral()")
+        }
+        if (patched.contains("com.android.tools.build:gradle:4.1.0")) {
+            patched = patched.replace(
                 "classpath 'com.android.tools.build:gradle:4.1.0'",
                 "classpath 'com.android.tools.build:gradle:8.5.2'",
             )
-            .replace(
-                "    if (project.android.hasProperty(\"namespace\")) {\n        namespace 'im.zego.zim_flutter'\n    }",
-                "    namespace 'im.zego.zim_flutter'",
-            )
-            .replace("compileSdkVersion 31", "compileSdkVersion flutter.compileSdkVersion")
-            .replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
-            .replace("minSdkVersion 16", "minSdkVersion 21")
-    if (patched != original) {
-        zegoBuild.writeText(patched)
-        println("Patched zego_zim Android build for Gradle 9.")
+        }
+        patched = patched.replace(Regex("""compileSdkVersion\s+(2[89]|3[0123])"""), "compileSdkVersion 35")
+        patched = patched.replace(Regex("""compileSdk\s*=\s*(2[89]|3[0123])"""), "compileSdk = 35")
+        if (patched.contains("minSdkVersion 16")) {
+            patched = patched.replace("minSdkVersion 16", "minSdkVersion 21")
+        }
+        if (patched.contains("JavaVersion.VERSION_1_8")) {
+            patched = patched.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
+        }
+        if (patched != original) {
+            buildFile.writeText(patched)
+            println("Patched $pluginName Android build for Gradle / compileSdk 35.")
+        }
     }
 }

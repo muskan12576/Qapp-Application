@@ -52,6 +52,11 @@ class S {
   String get loginSmall => tr('loginSmall');
   String get phoneHint => tr('phoneHint');
   String get sendOtp => tr('sendOtp');
+  String get signingIn {
+    if (code == 'hi') return 'साइन इन हो रहा है...';
+    if (code == 'hing') return 'Signing in...';
+    return 'Signing in...';
+  }
   String get otpTitle => tr('otpTitle');
   String get otpSub => tr('otpSub');
   String get next => tr('next');

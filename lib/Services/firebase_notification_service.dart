@@ -3,11 +3,17 @@ import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:qapp/Services/api_service.dart';
+import 'package:qapp/Services/call_manager_service.dart';
 import 'package:qapp/Utills/app_constants.dart';
 import 'package:qapp/Utills/token_storage.dart';
 import 'package:qapp/data/demo_data.dart';
+import 'package:qapp/main.dart';
+import 'package:qapp/Views/ChatModule/chat_open_screen.dart';
+import 'package:qapp/theme/q_route.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -70,6 +76,19 @@ class FirebaseNotificationService {
     // Handle foreground notifications
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       debugPrint('⚡ [FCM FG] Foreground message received: ${message.notification?.title}');
+      final data = message.data;
+      final type = data['type']?.toString();
+      if (type == 'call' || type == 'video_call' || type == 'incoming_call') {
+        CallManagerService.instance.handleIncomingCall({
+          'callId': data['callId'],
+          'roomId': data['roomId'] ?? data['callId'],
+          'kind': type == 'video_call' ? 'video' : 'voice',
+          'callerId': data['callerId'] ?? data['senderId'],
+          'callerName': data['callerName'] ?? message.notification?.title ?? 'Caller',
+          'callerPhoto': data['callerPhoto'],
+          'token': data['token'],
+        });
+      }
       _showLocalNotification(message);
     });
 
@@ -167,12 +186,42 @@ class FirebaseNotificationService {
     }
   }
 
-  void _showLocalNotification(RemoteMessage message) {
-    final notification = message.notification;
+  void _showLocalNotification(RemoteMessage message) async {
     final data = message.data;
+    final type = data['type']?.toString() ?? 'chat_message';
+    final isCall = type == 'call' || type == 'video_call' || type == 'incoming_call';
+
+    // Check if user disabled notifications in profile settings (calls bypass mute)
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool('app_notifications_enabled') ?? true;
+      if (!enabled && !isCall) {
+        debugPrint('🔇 [FCM] Notification suppressed by user app settings');
+        return;
+      }
+
+      final chatId = data['chatId']?.toString();
+      final senderId = data['senderId']?.toString();
+
+      final mutedList = prefs.getStringList('qapp_muted_threads') ?? [];
+      if (!isCall && ((chatId != null && mutedList.contains(chatId)) ||
+          (senderId != null && mutedList.contains(senderId)))) {
+        debugPrint('🔇 [FCM] Notification suppressed because chat thread is muted in prefs');
+        return;
+      }
+    } catch (_) {}
+
+    final notification = message.notification;
 
     final chatId = data['chatId']?.toString();
     final senderId = data['senderId']?.toString();
+
+    // Suppress notification if user is actively in this chat screen
+    if (ChatOpenScreen.activeChatId != null &&
+        (ChatOpenScreen.activeChatId == chatId || ChatOpenScreen.activeChatId == senderId)) {
+      debugPrint('🔇 [FCM] Notification suppressed because user is currently inside this chat');
+      return;
+    }
 
     // Suppress notification if thread is muted
     if (chatId != null || senderId != null) {
@@ -190,12 +239,15 @@ class FirebaseNotificationService {
     String body = notification?.body ?? data['body'] ?? 'New message';
 
     final kind = data['kind']?.toString() ?? 'text';
-    final type = data['type']?.toString() ?? 'chat_message';
 
     if (type == 'call') {
       body = '📞 Incoming voice call...';
     } else if (type == 'video_call') {
       body = '📹 Incoming video call...';
+    } else if (type == 'status_like') {
+      body = notification?.body ?? data['body'] ?? 'Liked your status ❤️';
+    } else if (type == 'message_reaction') {
+      body = notification?.body ?? data['body'] ?? 'Reacted to your message';
     } else if (kind == 'image') {
       body = '📷 Photo';
     } else if (kind == 'video') {
@@ -238,8 +290,108 @@ class FirebaseNotificationService {
     );
   }
 
+  Future<void> showNotificationFromData(Map<String, dynamic> data) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool('app_notifications_enabled') ?? true;
+      if (!enabled) return;
+
+      final chatId = data['chatId']?.toString();
+      final senderId = data['senderId']?.toString();
+
+      // Suppress notification if user is actively in this chat screen
+      if (ChatOpenScreen.activeChatId != null &&
+          (ChatOpenScreen.activeChatId == chatId || ChatOpenScreen.activeChatId == senderId)) {
+        return;
+      }
+
+      final mutedList = prefs.getStringList('qapp_muted_threads') ?? [];
+      if ((chatId != null && mutedList.contains(chatId)) ||
+          (senderId != null && mutedList.contains(senderId))) {
+        return;
+      }
+
+      final title = data['title']?.toString() ?? data['senderName']?.toString() ?? 'Qapp';
+      final body = data['body']?.toString() ?? 'New notification';
+
+      final androidDetails = AndroidNotificationDetails(
+        _channel.id,
+        _channel.name,
+        channelDescription: _channel.description,
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        icon: '@mipmap/ic_launcher',
+      );
+
+      const darwinDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+      );
+
+      final notificationId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await _local.show(
+        id: notificationId,
+        title: title,
+        body: body,
+        notificationDetails: details,
+        payload: jsonEncode(data),
+      );
+    } catch (_) {}
+  }
+
   void _handleNotificationClick(Map<String, dynamic> data) {
     debugPrint('⚡ [FCM CLICK] Navigating for data: $data');
-    // Global navigation can be triggered when user clicks notification
+    final type = data['type']?.toString();
+    if (type == 'call' || type == 'video_call' || type == 'incoming_call') {
+      CallManagerService.instance.handleIncomingCall({
+        'callId': data['callId'],
+        'roomId': data['roomId'] ?? data['callId'],
+        'kind': type == 'video_call' ? 'video' : 'voice',
+        'callerId': data['callerId'] ?? data['senderId'],
+        'callerName': data['callerName'] ?? data['title'] ?? 'Caller',
+        'callerPhoto': data['callerPhoto'],
+        'token': data['token'],
+      });
+      return;
+    }
+
+    final chatId = data['chatId']?.toString();
+    final senderId = data['senderId']?.toString();
+    final senderName = data['senderName']?.toString() ?? data['title']?.toString() ?? 'Chat';
+
+    if (chatId == null && senderId == null) return;
+
+    ChatThread? found;
+    for (final t in ChatBook.instance.threads) {
+      if ((chatId != null && t.chatId == chatId) ||
+          (senderId != null && t.peerId == senderId)) {
+        found = t;
+        break;
+      }
+    }
+
+    final thread = found ??
+        ChatThread(
+          chatId: chatId,
+          peerId: senderId,
+          name: senderName,
+          header: senderName,
+          time: '',
+          preview: '',
+          colorIndex: 2,
+          phone: '',
+          about: '',
+          messages: [],
+        );
+
+    GlobalVariable.navState.currentState?.push(qRoute(ChatOpenScreen(thread: thread)));
   }
 }

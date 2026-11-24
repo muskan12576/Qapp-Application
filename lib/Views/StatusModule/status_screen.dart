@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:qapp/Utills/app_colors.dart';
 import 'package:qapp/Utills/app_utils.dart';
 import 'package:qapp/Views/StatusModule/model/status_vm.dart';
 import 'package:qapp/Views/StatusModule/my_status_screen.dart';
@@ -13,6 +12,7 @@ import 'package:qapp/theme/app_theme.dart';
 import 'package:qapp/theme/q_route.dart';
 import 'package:qapp/widgets/q_avatar.dart';
 import 'package:qapp/widgets/q_background.dart';
+import 'package:qapp/widgets/status_progress_ring.dart';
 
 class StatusScreen extends StatefulWidget {
   const StatusScreen({super.key, this.focusTick = 0});
@@ -135,39 +135,6 @@ class _StatusScreenState extends State<StatusScreen> {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Add Link / Text Status button
-          FloatingActionButton.small(
-            heroTag: 'fab_link_status',
-            backgroundColor: AppColors.card,
-            elevation: 4,
-            onPressed: () async {
-              await Navigator.of(context).push(
-                qRoute(const AddStatusScreen(initialMode: 'link')),
-              );
-              _loadFeed();
-            },
-            child: const Icon(Icons.link_rounded, color: AppColors.accent, size: 20),
-          ),
-          const SizedBox(height: 10),
-          // Add Photo / Video Status button
-          FloatingActionButton(
-            heroTag: 'fab_media_status',
-            backgroundColor: AppColors.accent,
-            elevation: 6,
-            onPressed: () async {
-              await Navigator.of(context).push(
-                qRoute(const AddStatusScreen(initialMode: 'media')),
-              );
-              _loadFeed();
-            },
-            child: const Icon(Icons.camera_alt_rounded, color: Colors.black, size: 24),
-          ),
-          const SizedBox(height: 56), // Padding above bottom navigation bar
-        ],
-      ),
       body: QBackground(
         child: SafeArea(
           bottom: false,
@@ -239,6 +206,8 @@ class _StatusScreenState extends State<StatusScreen> {
                   bytes: MyProfile.photo,
                   badge: true,
                   hasStories: hasMyStatus,
+                  seen: true,
+                  statusCount: (_myStatusData?['statuses'] as List? ?? []).length,
                   onTap: () {
                     if (hasMyStatus) {
                       _openStatusGroup(_myStatusData!, isMine: true);
@@ -275,6 +244,7 @@ class _StatusScreenState extends State<StatusScreen> {
                       colorIndex: 1,
                       photo: peer['userPhoto']?.toString(),
                       hasStories: true,
+                      statusCount: (peer['statuses'] as List? ?? []).length,
                       seen: false,
                       onTap: () => _openStatusGroup(peer),
                     ),
@@ -293,6 +263,7 @@ class _StatusScreenState extends State<StatusScreen> {
                       colorIndex: 3,
                       photo: peer['userPhoto']?.toString(),
                       hasStories: true,
+                      statusCount: (peer['statuses'] as List? ?? []).length,
                       seen: true,
                       onTap: () => _openStatusGroup(peer),
                     ),
@@ -350,6 +321,7 @@ class _StatusScreenState extends State<StatusScreen> {
     bool badge = false,
     bool seen = false,
     bool hasStories = false,
+    int statusCount = 1,
     VoidCallback? onBadge,
     VoidCallback? onMore,
   }) {
@@ -368,17 +340,12 @@ class _StatusScreenState extends State<StatusScreen> {
                 Stack(
                   clipBehavior: Clip.none,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(2.5),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: hasStories
-                              ? (seen ? AppColors.line : AppColors.accent)
-                              : Colors.transparent,
-                          width: 2.2,
-                        ),
-                      ),
+                    StatusProgressRing(
+                      hasStatus: hasStories,
+                      hasUnviewed: !seen,
+                      totalStatuses: statusCount,
+                      ringWidth: 2.5,
+                      padding: 2.2,
                       child: QAvatar(
                         name: name,
                         size: 46,

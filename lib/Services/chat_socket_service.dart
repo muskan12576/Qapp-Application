@@ -21,6 +21,7 @@ class ChatSocketService {
   Timer? _reconnectDebounce;
 
   bool get isConnected => _isConnected;
+  io.Socket? get socket => _socket;
 
   // Stream controllers for real-time events
   final _messageStream = StreamController<Map<String, dynamic>>.broadcast();
@@ -36,6 +37,22 @@ class ChatSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _messageReactionStream =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _activityNotificationStream =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _incomingCallStream =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _callEndedStream =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _callDeclinedStream =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _callAcceptedStream =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _callBusyStream =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _participantJoinedStream =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _participantLeftStream =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get onMessage => _messageStream.stream;
   Stream<Map<String, dynamic>> get onDelivered => _deliveredStream.stream;
@@ -50,6 +67,22 @@ class ChatSocketService {
       _messageEditedStream.stream;
   Stream<Map<String, dynamic>> get onMessageReaction =>
       _messageReactionStream.stream;
+  Stream<Map<String, dynamic>> get onActivityNotification =>
+      _activityNotificationStream.stream;
+  Stream<Map<String, dynamic>> get onIncomingCall =>
+      _incomingCallStream.stream;
+  Stream<Map<String, dynamic>> get onCallEnded =>
+      _callEndedStream.stream;
+  Stream<Map<String, dynamic>> get onCallDeclined =>
+      _callDeclinedStream.stream;
+  Stream<Map<String, dynamic>> get onCallAccepted =>
+      _callAcceptedStream.stream;
+  Stream<Map<String, dynamic>> get onCallBusy =>
+      _callBusyStream.stream;
+  Stream<Map<String, dynamic>> get onParticipantJoined =>
+      _participantJoinedStream.stream;
+  Stream<Map<String, dynamic>> get onParticipantLeft =>
+      _participantLeftStream.stream;
 
   Future<void> reconnect() async {
     _reconnectDebounce?.cancel();
@@ -222,6 +255,106 @@ class ChatSocketService {
           _messageReactionStream.add(Map<String, dynamic>.from(data));
         }
       });
+
+      _socket!.on('notification:activity', (data) {
+        debugPrint('⚡ [SOCKET RECV] notification:activity: $data');
+        if (data is Map) {
+          _activityNotificationStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('incoming_call', (data) {
+        debugPrint('⚡ [SOCKET RECV] incoming_call: $data');
+        if (data is Map) {
+          _incomingCallStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('call:incoming', (data) {
+        debugPrint('⚡ [SOCKET RECV] call:incoming (Agora): $data');
+        if (data is Map) {
+          _incomingCallStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('group-call:invite', (data) {
+        debugPrint('⚡ [SOCKET RECV] group-call:invite: $data');
+        if (data is Map) {
+          final map = Map<String, dynamic>.from(data);
+          map['isGroup'] = true;
+          _incomingCallStream.add(map);
+        }
+      });
+
+      _socket!.on('call:accept', (data) {
+        debugPrint('⚡ [SOCKET RECV] call:accept (Agora): $data');
+        if (data is Map) {
+          _callAcceptedStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('call_accepted', (data) {
+        debugPrint('⚡ [SOCKET RECV] call_accepted: $data');
+        if (data is Map) {
+          _callAcceptedStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('call:busy', (data) {
+        debugPrint('⚡ [SOCKET RECV] call:busy (Agora): $data');
+        if (data is Map) {
+          _callBusyStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('call:participant-joined', (data) {
+        debugPrint('⚡ [SOCKET RECV] call:participant-joined (Agora): $data');
+        if (data is Map) {
+          _participantJoinedStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('call:participant-left', (data) {
+        debugPrint('⚡ [SOCKET RECV] call:participant-left (Agora): $data');
+        if (data is Map) {
+          _participantLeftStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('call_ended', (data) {
+        debugPrint('⚡ [SOCKET RECV] call_ended: $data');
+        if (data is Map) {
+          _callEndedStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('call:ended', (data) {
+        debugPrint('⚡ [SOCKET RECV] call:ended (Agora): $data');
+        if (data is Map) {
+          _callEndedStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('call_rejected', (data) {
+        debugPrint('⚡ [SOCKET RECV] call_rejected: $data');
+        if (data is Map) {
+          _callDeclinedStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('call:reject', (data) {
+        debugPrint('⚡ [SOCKET RECV] call:reject (Agora): $data');
+        if (data is Map) {
+          _callDeclinedStream.add(Map<String, dynamic>.from(data));
+        }
+      });
+
+      _socket!.on('call_declined', (data) {
+        debugPrint('⚡ [SOCKET RECV] call_declined: $data');
+        if (data is Map) {
+          _callDeclinedStream.add(Map<String, dynamic>.from(data));
+        }
+      });
     } catch (e) {
       debugPrint('⚡ [SOCKET] Error during connect: $e');
     } finally {
@@ -306,6 +439,132 @@ class ChatSocketService {
       'chatId': chatId,
       'deleteForEveryone': deleteForEveryone,
     });
+  }
+
+  void acceptCall({required String callId, required String callerId, String? channelName}) {
+    debugPrint('⚡ [SOCKET EMIT] call_accepted & call:accept: callId=$callId, callerId=$callerId');
+    _socket?.emit('call_accepted', {
+      'callId': callId,
+      'callerId': callerId,
+    });
+    if (channelName != null) {
+      _socket?.emit('call:accept', {
+        'callId': callId,
+        'callerId': callerId,
+        'channelName': channelName,
+      });
+    }
+  }
+
+  void declineCall({required String callId, required String callerId, String? roomId}) {
+    debugPrint('⚡ [SOCKET EMIT] decline_call & call:reject: callId=$callId, callerId=$callerId');
+    _socket?.emit('decline_call', {
+      'callId': callId,
+      'callerId': callerId,
+      'roomId': roomId,
+    });
+    _socket?.emit('call:reject', {
+      'callId': callId,
+      'callerId': callerId,
+    });
+  }
+
+  void endCall({required String callId, String? recipientId, String? callerId, String? roomId, List<String>? targetIds}) {
+    debugPrint('⚡ [SOCKET EMIT] end_call & call:ended: callId=$callId');
+    _socket?.emit('end_call', {
+      'callId': callId,
+      'recipientId': recipientId,
+      'callerId': callerId,
+      'roomId': roomId,
+    });
+    _socket?.emit('call:ended', {
+      'callId': callId,
+      'recipientId': recipientId,
+      'callerId': callerId,
+      'targetIds': targetIds,
+    });
+  }
+
+  void initiateAgoraCall({
+    required String channelName,
+    required String callType, // 'voice' or 'video'
+    String? recipientId,
+    List<String>? recipientIds,
+    bool isGroup = false,
+    String? callId,
+  }) {
+    final payload = <String, dynamic>{
+      'channelName': channelName,
+      'callType': callType,
+      'isGroup': isGroup,
+      'callId': callId ?? 'call_${DateTime.now().millisecondsSinceEpoch}',
+    };
+    if (recipientId != null) payload['recipientId'] = recipientId;
+    if (recipientIds != null) payload['recipientIds'] = recipientIds;
+
+    debugPrint('⚡ [SOCKET EMIT] call:initiate: $payload');
+    _socket?.emit('call:initiate', payload);
+  }
+
+  void cancelAgoraCall({
+    required String callId,
+    String? recipientId,
+    List<String>? recipientIds,
+  }) {
+    debugPrint('⚡ [SOCKET EMIT] call:cancel: callId=$callId');
+    _socket?.emit('call:cancel', {
+      'callId': callId,
+      'recipientId': recipientId,
+      'recipientIds': recipientIds,
+    });
+  }
+
+  void busyAgoraCall({required String callId, required String callerId}) {
+    debugPrint('⚡ [SOCKET EMIT] call:busy: callId=$callId, callerId=$callerId');
+    _socket?.emit('call:busy', {
+      'callId': callId,
+      'callerId': callerId,
+    });
+  }
+
+  void notifyParticipantJoined({
+    required String channelName,
+    required int uid,
+    String? userName,
+    List<String>? participants,
+  }) {
+    _socket?.emit('call:participant-joined', {
+      'channelName': channelName,
+      'uid': uid,
+      'userName': userName,
+      'participants': participants ?? [],
+    });
+  }
+
+  void notifyParticipantLeft({
+    required String channelName,
+    required int uid,
+    List<String>? participants,
+  }) {
+    _socket?.emit('call:participant-left', {
+      'channelName': channelName,
+      'uid': uid,
+      'participants': participants ?? [],
+    });
+  }
+
+  void notifyBackground() {
+    debugPrint('⚡ [SOCKET EMIT] user_inactive');
+    _socket?.emit('user_inactive', {});
+  }
+
+  void notifyForeground() {
+    debugPrint('⚡ [SOCKET EMIT] user_active');
+    if (_socket != null && _isConnected) {
+      _socket?.emit('user_active', {});
+    } else {
+      connect();
+    }
   }
 
   void disconnect() {

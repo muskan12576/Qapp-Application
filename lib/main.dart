@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qapp/Services/api_service.dart';
+import 'package:qapp/Services/call_manager_service.dart';
 import 'package:qapp/Services/firebase_notification_service.dart';
 import 'package:qapp/l10n/app_lang.dart';
 import 'package:qapp/Views/HomeModule/splash_view.dart';
@@ -34,6 +35,9 @@ void main() async {
   _paintBars();
   runApp(const Qapp());
   SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
+
+  // Initialize global incoming call listener (voice & video calls)
+  CallManagerService.instance.initialize();
 
   // Initialize FCM notifications & device token sync asynchronously in background
   FirebaseNotificationService.instance.initialize().catchError((e) {

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/Services/chat_audio_service.dart';
 import 'package:qapp/Utills/app_constants.dart';
@@ -99,14 +100,14 @@ bool isLocationUrl(String text) {
       clean.startsWith('geo:');
 }
 
-/// ✅ Inline Location Bubble
+/// ✅ Enhanced WhatsApp-Style Location Bubble
 class ChatLocationBubble extends StatelessWidget {
   const ChatLocationBubble({super.key, required this.message, required this.mine});
 
   final ChatMessage message;
   final bool mine;
 
-  void _openMap(BuildContext context) {
+  String _extractUrl() {
     String url = '';
     final lines = message.text.split('\n');
     for (final line in lines) {
@@ -118,30 +119,83 @@ class ChatLocationBubble extends StatelessWidget {
     if (url.isEmpty && message.text.contains(',')) {
       url = 'https://maps.google.com/?q=${message.text.trim()}';
     }
-    if (url.isNotEmpty) {
-      const MethodChannel('qapp/open_file').invokeMethod('map', {'url': url});
+    return url;
+  }
+
+  String _extractCoords() {
+    final reg = RegExp(r'q=([0-9.-]+),([0-9.-]+)');
+    final match = reg.firstMatch(message.text);
+    if (match != null) {
+      final lat = double.tryParse(match.group(1) ?? '')?.toStringAsFixed(4) ?? match.group(1);
+      final lng = double.tryParse(match.group(2) ?? '')?.toStringAsFixed(4) ?? match.group(2);
+      return '$lat° N, $lng° E';
     }
+    final commaReg = RegExp(r'([0-9.-]+),\s*([0-9.-]+)');
+    final commaMatch = commaReg.firstMatch(message.text);
+    if (commaMatch != null) {
+      final lat = double.tryParse(commaMatch.group(1) ?? '')?.toStringAsFixed(4) ?? commaMatch.group(1);
+      final lng = double.tryParse(commaMatch.group(2) ?? '')?.toStringAsFixed(4) ?? commaMatch.group(2);
+      return '$lat° N, $lng° E';
+    }
+    return 'GPS Location';
+  }
+
+  String _extractTitle() {
+    final firstLine = message.text.split('\n').first.trim();
+    if (firstLine.isNotEmpty && !firstLine.startsWith('http')) {
+      return firstLine;
+    }
+    return '📍 Shared Location';
+  }
+
+  Future<void> _openMap(BuildContext context) async {
+    final url = _extractUrl();
+    if (url.isEmpty) return;
+
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+    } catch (_) {}
+
+    try {
+      const MethodChannel('qapp/open_file').invokeMethod('map', {'url': url});
+    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
+    final coords = _extractCoords();
+    final title = _extractTitle();
+    final sender = message.senderName ?? (mine ? 'You' : 'Contact');
+    final timeStr = message.time ?? '';
+
     return GestureDetector(
       onTap: () => _openMap(context),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: Container(
-          width: 240,
-          color: const Color(0xFF0C2426),
+          width: 260,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.1),
+            ),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Map graphic preview
               Container(
-                height: 120,
+                height: 130,
                 width: double.infinity,
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [Color(0xFF13383B), Color(0xFF0B1F24)],
+                    colors: [Color(0xFF152A38), Color(0xFF0F1E29)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
@@ -150,81 +204,142 @@ class ChatLocationBubble extends StatelessWidget {
                   alignment: Alignment.center,
                   children: [
                     CustomPaint(
-                      size: const Size(240, 120),
+                      size: const Size(260, 130),
                       painter: _MapGridPainter(),
                     ),
+                    // Road paths illusion
+                    CustomPaint(
+                      size: const Size(260, 130),
+                      painter: _MapRoadPainter(),
+                    ),
+                    // Pulsing GPS Pin
                     Container(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.redAccent.withValues(alpha: 0.2),
+                        color: const Color(0xFFEF4444).withValues(alpha: 0.25),
                         shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFEF4444).withValues(alpha: 0.4),
+                            blurRadius: 16,
+                            spreadRadius: 2,
+                          ),
+                        ],
                       ),
                       child: const Icon(
                         Icons.location_on_rounded,
-                        color: Colors.redAccent,
-                        size: 36,
+                        color: Color(0xFFEF4444),
+                        size: 34,
                       ),
                     ),
+                    // Accuracy badge
                     Positioned(
-                      left: 8,
-                      bottom: 8,
+                      left: 10,
+                      top: 10,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: Colors.black87,
+                          color: Colors.black.withValues(alpha: 0.75),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.my_location_rounded, color: AppColors.accent, size: 12),
-                            SizedBox(width: 4),
+                            const Icon(Icons.gps_fixed_rounded, color: Color(0xFF25D366), size: 12),
+                            const SizedBox(width: 4),
                             Text(
-                              'Live Location',
-                              style: TextStyle(
+                              coords,
+                              style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        message.text.split('https://').first.trim().isNotEmpty
-                            ? message.text.split('https://').first.trim()
-                            : 'Shared Location',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                    // Google Maps brand pill
+                    Positioned(
+                      right: 10,
+                      bottom: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          "Google Maps",
+                          style: TextStyle(color: Colors.white60, fontSize: 9),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppColors.accent,
-                        borderRadius: BorderRadius.circular(12),
+                  ],
+                ),
+              ),
+
+              // Info Section
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
                       ),
-                      child: const Text(
-                        'View',
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Text(
+                          'Shared by $sender',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.6),
+                            fontSize: 11,
+                          ),
+                        ),
+                        if (timeStr.isNotEmpty) ...[
+                          Text(
+                            ' • $timeStr',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.4),
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+
+                    // "Open in Google Maps" Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _openMap(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF25D366),
+                          foregroundColor: Colors.black,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        icon: const Icon(Icons.map_rounded, size: 16, color: Colors.black),
+                        label: const Text(
+                          "Open in Google Maps",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                          ),
                         ),
                       ),
                     ),
@@ -237,6 +352,29 @@ class ChatLocationBubble extends StatelessWidget {
       ),
     );
   }
+}
+
+class _MapRoadPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final roadPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.12)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke;
+
+    final path = Path()
+      ..moveTo(0, size.height * 0.7)
+      ..cubicTo(size.width * 0.4, size.height * 0.6, size.width * 0.6, size.height * 0.3, size.width, size.height * 0.2);
+    canvas.drawPath(path, roadPaint);
+
+    final path2 = Path()
+      ..moveTo(size.width * 0.3, 0)
+      ..lineTo(size.width * 0.7, size.height);
+    canvas.drawPath(path2, roadPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _MapGridPainter extends CustomPainter {

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:qapp/Services/chat_socket_service.dart';
+import 'package:qapp/Utills/app_utils.dart';
 import 'package:qapp/Utills/token_storage.dart';
 import 'package:qapp/Views/ChatModule/model/chat_vm.dart';
 
@@ -38,6 +40,7 @@ class ChatMessage {
   final String? senderId;
   final String? senderName;
   String? fileUrl;
+  String? get mediaUrl => fileUrl;
   final String text;
   final bool mine;
   String? time;
@@ -73,6 +76,7 @@ class ChatThread {
     this.pinned = false,
     this.muted = false,
     this.blocked = false,
+    this.blockedByPeer = false,
     this.groups = const [],
     this.disappear = 'off',
     this.themeIndex = 0,
@@ -87,6 +91,8 @@ class ChatThread {
     this.photoUrl,
     this.isGroup = false,
     this.lastSeen,
+    this.onlyAdminsCanSend = false,
+    this.myRole = 'member',
   });
 
   final String name;
@@ -106,6 +112,7 @@ class ChatThread {
   bool pinned;
   bool muted;
   bool blocked;
+  bool blockedByPeer;
   String disappear;
   int themeIndex;
   String? wallpaperPath;
@@ -120,6 +127,8 @@ class ChatThread {
   final String? photoUrl;
   final bool isGroup;
   DateTime? lastSeen;
+  bool onlyAdminsCanSend;
+  String myRole;
 }
 
 class MyProfile {
@@ -345,6 +354,9 @@ class ChatBook extends ChangeNotifier {
           for (final t in threads) {
             if (t.peerId == uId) {
               t.online = false;
+              if (data['lastSeen'] != null) {
+                t.lastSeen = DateTime.tryParse(data['lastSeen'].toString());
+              }
             }
           }
           notifyListeners();
@@ -366,6 +378,28 @@ class ChatBook extends ChangeNotifier {
 
         final lastMsg = c['lastMessage'] as Map<String, dynamic>?;
 
+        String formattedTime = '';
+        if (lastMsg != null && lastMsg['time'] != null) {
+          final dt = DateTime.tryParse(lastMsg['time'].toString());
+          if (dt != null) {
+            final local = dt.toLocal();
+            final now = DateTime.now();
+            final today = DateTime(now.year, now.month, now.day);
+            final yesterday = today.subtract(const Duration(days: 1));
+            final msgDay = DateTime(local.year, local.month, local.day);
+            if (msgDay == today) {
+              formattedTime = formatMessageTime(local);
+            } else if (msgDay == yesterday) {
+              formattedTime = 'Yesterday';
+            } else {
+              formattedTime =
+                  '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')}/${local.year.toString().substring(2)}';
+            }
+          } else {
+            formattedTime = lastMsg['time'].toString();
+          }
+        }
+
         liveThreads.add(
           ChatThread(
             chatId: c['id']?.toString(),
@@ -373,7 +407,7 @@ class ChatBook extends ChangeNotifier {
             isGroup: isGroup,
             name: c['title']?.toString() ?? 'User',
             header: c['title']?.toString() ?? 'User',
-            time: lastMsg?['time'] != null ? 'Active' : '',
+            time: formattedTime,
             preview: lastMsg?['body']?.toString() ?? 'Tap to chat',
             colorIndex: i % 5,
             phone: peer?['phone']?.toString() ?? '',
@@ -384,12 +418,62 @@ class ChatBook extends ChangeNotifier {
             lastSeen: peer?['lastSeen'] != null
                 ? DateTime.tryParse(peer!['lastSeen'].toString())
                 : null,
+            onlyAdminsCanSend: c['onlyAdminsCanSend'] == true,
+            myRole: c['myRole']?.toString() ?? 'member',
+            favourite: c['isFavorite'] == true,
+            muted: c['isMuted'] == true,
+            blocked: peer?['blockedByMe'] == true,
+            blockedByPeer: peer?['blockedByPeer'] == true,
+            wallpaperPath: c['wallpaperUrl']?.toString(),
+            wallpaperColor: c['wallpaperColor'] is int
+                ? c['wallpaperColor'] as int
+                : (c['wallpaperColor'] != null
+                    ? int.tryParse(c['wallpaperColor'].toString())
+                    : null),
             messages: [],
           ),
         );
       }
 
+      final prefs = await SharedPreferences.getInstance();
+      final pinnedIds = prefs.getStringList('qapp_pinned_chats') ?? [];
+      final blockedIds = prefs.getStringList('qapp_blocked_users') ?? [];
+      final favIds = prefs.getStringList('qapp_favourite_threads') ?? [];
+      final mutedIds = prefs.getStringList('qapp_muted_threads') ?? [];
+
       for (final lt in liveThreads) {
+        final idKey = lt.chatId ?? lt.peerId ?? lt.phone;
+        final isPinned = pinnedIds.contains(idKey) ||
+            (lt.chatId != null && pinnedIds.contains(lt.chatId)) ||
+            (lt.peerId != null && pinnedIds.contains(lt.peerId)) ||
+            (lt.phone.isNotEmpty && pinnedIds.contains(lt.phone));
+        if (isPinned) {
+          lt.pinned = true;
+        }
+        if (favIds.contains(idKey)) {
+          lt.favourite = true;
+        }
+        if (mutedIds.contains(idKey)) {
+          lt.muted = true;
+        }
+        if (lt.peerId != null && blockedIds.contains(lt.peerId)) {
+          lt.blocked = true;
+        }
+
+        // Restore saved wallpaper & theme per chat
+        final wpPath = prefs.getString('qapp_wallpaper_path_$idKey');
+        if (wpPath != null && wpPath.isNotEmpty) {
+          lt.wallpaperPath = wpPath;
+        }
+        final wpColor = prefs.getInt('qapp_wallpaper_color_$idKey');
+        if (wpColor != null) {
+          lt.wallpaperColor = wpColor;
+        }
+        final thIdx = prefs.getInt('qapp_theme_idx_$idKey');
+        if (thIdx != null) {
+          lt.themeIndex = thIdx;
+        }
+
         for (final existing in threads) {
           if ((lt.chatId != null && existing.chatId == lt.chatId) ||
               (lt.peerId != null && existing.peerId == lt.peerId)) {
@@ -397,6 +481,13 @@ class ChatBook extends ChangeNotifier {
               lt.messages.clear();
               lt.messages.addAll(existing.messages);
             }
+            if (existing.pinned) lt.pinned = true;
+            if (existing.favourite) lt.favourite = true;
+            if (existing.muted) lt.muted = true;
+            if (existing.blocked) lt.blocked = true;
+            if (existing.blockedByPeer) lt.blockedByPeer = true;
+            if (existing.wallpaperPath != null) lt.wallpaperPath = existing.wallpaperPath;
+            if (existing.wallpaperColor != null) lt.wallpaperColor = existing.wallpaperColor;
             break;
           }
         }
@@ -407,6 +498,86 @@ class ChatBook extends ChangeNotifier {
     } catch (err) {
       debugPrint('[ChatBook] Error loading live chats: $err');
     }
+  }
+
+  Future<void> togglePin(ChatThread thread) async {
+    thread.pinned = !thread.pinned;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final pinned = prefs.getStringList('qapp_pinned_chats') ?? [];
+      final keys = [
+        if (thread.chatId != null && thread.chatId!.isNotEmpty) thread.chatId!,
+        if (thread.peerId != null && thread.peerId!.isNotEmpty) thread.peerId!,
+        if (thread.phone.isNotEmpty) thread.phone,
+      ];
+      if (thread.pinned) {
+        for (final k in keys) {
+          if (!pinned.contains(k)) pinned.add(k);
+        }
+      } else {
+        for (final k in keys) {
+          pinned.remove(k);
+        }
+      }
+      await prefs.setStringList('qapp_pinned_chats', pinned);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  Future<void> toggleFavourite(ChatThread thread) async {
+    thread.favourite = !thread.favourite;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final favs = prefs.getStringList('qapp_favourite_threads') ?? [];
+      final idKey = thread.chatId ?? thread.peerId ?? thread.phone;
+      if (idKey.isNotEmpty) {
+        if (thread.favourite) {
+          if (!favs.contains(idKey)) favs.add(idKey);
+        } else {
+          favs.remove(idKey);
+        }
+        await prefs.setStringList('qapp_favourite_threads', favs);
+      }
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  Future<void> toggleMute(ChatThread thread) async {
+    thread.muted = !thread.muted;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final muted = prefs.getStringList('qapp_muted_threads') ?? [];
+      final idKey = thread.chatId ?? thread.peerId ?? thread.phone;
+      if (idKey.isNotEmpty) {
+        if (thread.muted) {
+          if (!muted.contains(idKey)) muted.add(idKey);
+        } else {
+          muted.remove(idKey);
+        }
+        await prefs.setStringList('qapp_muted_threads', muted);
+      }
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  Future<void> toggleBlock(ChatThread thread) async {
+    thread.blocked = !thread.blocked;
+    try {
+      if (thread.peerId != null) {
+        final prefs = await SharedPreferences.getInstance();
+        final blocked = threads
+            .where((t) => t.blocked && t.peerId != null)
+            .map((t) => t.peerId!)
+            .toList();
+        await prefs.setStringList('qapp_blocked_users', blocked);
+        if (thread.blocked) {
+          await ChatViewModel.instance.blockUser(thread.peerId!);
+        } else {
+          await ChatViewModel.instance.unblockUser(thread.peerId!);
+        }
+      }
+    } catch (_) {}
+    notifyListeners();
   }
 
   void add(ChatThread thread) {

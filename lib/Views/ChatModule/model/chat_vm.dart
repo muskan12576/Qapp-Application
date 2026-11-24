@@ -56,8 +56,13 @@ class ChatViewModel extends BaseViewModel {
     String? clientId,
     String? replyTo,
     Map<String, dynamic>? fileInfo,
+    bool forwarded = false,
   }) async {
-    final payload = <String, dynamic>{'body': body, 'kind': kind};
+    final payload = <String, dynamic>{
+      'body': body,
+      'kind': kind,
+      'forwarded': forwarded,
+    };
     if (clientId != null) payload['clientId'] = clientId;
     if (replyTo != null) payload['replyTo'] = replyTo;
     if (fileInfo != null) payload['fileInfo'] = fileInfo;
@@ -205,6 +210,14 @@ class ChatViewModel extends BaseViewModel {
 
   Future<bool> clearChat(String chatId) async {
     final res = await _api.deleteRequest('/api/v1/chat/$chatId/clear');
+    return res != null && res.statusCode == 200;
+  }
+
+  Future<bool> updateWallpaper(String chatId, {String? wallpaperUrl, int? wallpaperColor}) async {
+    final payload = <String, dynamic>{};
+    if (wallpaperUrl != null) payload['wallpaperUrl'] = wallpaperUrl;
+    if (wallpaperColor != null) payload['wallpaperColor'] = wallpaperColor;
+    final res = await _api.putRequest('/api/v1/chat/$chatId/wallpaper', payload);
     return res != null && res.statusCode == 200;
   }
 

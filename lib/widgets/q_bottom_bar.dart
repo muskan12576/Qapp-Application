@@ -68,16 +68,25 @@ class QBottomBar extends StatelessWidget {
                     height: 58,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: AppColors.buttonGradient,
+                      gradient: index == 4
+                          ? const LinearGradient(
+                              colors: [Color(0xFF25D366), Color(0xFF128C7E)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            )
+                          : AppColors.buttonGradient,
+                      border: index == 4
+                          ? Border.all(color: Colors.white, width: 2)
+                          : null,
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF1FA37A).withValues(alpha: 0.45),
+                          color: (index == 4 ? const Color(0xFF25D366) : const Color(0xFF1FA37A)).withValues(alpha: 0.5),
                           blurRadius: 16,
                           offset: const Offset(0, 6),
                         ),
                       ],
                     ),
-                    child: const Icon(Icons.add_rounded, color: Colors.white, size: 32),
+                    child: const Icon(Icons.call_rounded, color: Colors.white, size: 28),
                   ),
                 ),
               ),
