@@ -47,7 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _send() async {
     final typed = _phone.text.trim();
     if (typed.length < 8) {
-      setState(() => _error = 'Mobile number pura daalo');
+      setState(() => _error = 'Please enter a valid mobile number');
       return;
     }
     final digits = '${_country.dial}$typed'.replaceAll(RegExp(r'\D'), '');

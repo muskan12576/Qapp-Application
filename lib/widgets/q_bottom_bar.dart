@@ -13,6 +13,7 @@ class QBottomBar extends StatelessWidget {
     required this.onAdd,
     this.youName = '',
     this.youPhoto,
+    this.youPhotoUrl,
   });
 
   final int index;
@@ -20,6 +21,7 @@ class QBottomBar extends StatelessWidget {
   final VoidCallback onAdd;
   final String youName;
   final Uint8List? youPhoto;
+  final String? youPhotoUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -147,7 +149,7 @@ class QBottomBar extends StatelessWidget {
                 shape: BoxShape.circle,
                 border: Border.all(color: on ? AppColors.accent : AppColors.line, width: 1.6),
               ),
-              child: QAvatar(name: name, size: 24, bytes: youPhoto),
+              child: QAvatar(name: name, size: 24, bytes: youPhoto, photo: youPhotoUrl),
             ),
             const SizedBox(height: 2),
             Text(

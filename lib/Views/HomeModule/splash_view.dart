@@ -52,6 +52,7 @@ class _SplashScreenState extends State<SplashScreen>
     if (loggedIn) {
       MyProfile.name = TokenStorage.instance.name;
       MyProfile.bio = TokenStorage.instance.about;
+      MyProfile.photoUrl = TokenStorage.instance.photoUrl;
     }
     if (!mounted) return;
     final next = loggedIn ? const HomeShell() : const WelcomeScreen();

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:qapp/Services/chat_socket_service.dart';
+import 'package:qapp/Views/ChatModule/model/chat_vm.dart';
 import 'package:qapp/Views/GroupModule/model/group_vm.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/l10n/app_lang.dart';
@@ -34,7 +36,16 @@ void _openNamed(BuildContext context, String name, List<String> members) {
   if (found == null) {
     book.add(thread);
   }
-  Navigator.of(context).push(qRoute(ChatOpenScreen(thread: thread)));
+  thread.unread = 0;
+  book.ping();
+  if (thread.chatId != null && thread.chatId!.isNotEmpty) {
+    ChatSocketService.instance.markRead(thread.chatId!);
+    ChatViewModel.instance.markAsRead(thread.chatId!);
+  }
+  Navigator.of(context).push(qRoute(ChatOpenScreen(thread: thread))).then((_) {
+    thread.unread = 0;
+    book.ping();
+  });
 }
 
 class _GroupRow {
@@ -131,10 +142,10 @@ class _GroupsScreenState extends State<GroupsScreen> with SingleTickerProviderSt
             builder: (context, _) {
               final query = _search.text.trim().toLowerCase();
               final threads = ChatBook.instance.threads;
-              final created = threads.where((thread) => thread.phone.trim().isEmpty).toList();
+              final created = threads.where((thread) => thread.isGroup || thread.phone.trim().isEmpty).toList();
               final named = <String, List<String>>{};
               for (final thread in threads) {
-                if (thread.phone.trim().isEmpty) {
+                if (thread.isGroup || thread.phone.trim().isEmpty) {
                   continue;
                 }
                 for (final group in thread.groups) {
@@ -156,7 +167,16 @@ class _GroupsScreenState extends State<GroupsScreen> with SingleTickerProviderSt
                     favourite: group.favourite,
                     pinned: group.pinned,
                     onTap: () {
-                      Navigator.of(context).push(qRoute(ChatOpenScreen(thread: group)));
+                      group.unread = 0;
+                      ChatBook.instance.ping();
+                      if (group.chatId != null && group.chatId!.isNotEmpty) {
+                        ChatSocketService.instance.markRead(group.chatId!);
+                        ChatViewModel.instance.markAsRead(group.chatId!);
+                      }
+                      Navigator.of(context).push(qRoute(ChatOpenScreen(thread: group))).then((_) {
+                        group.unread = 0;
+                        ChatBook.instance.ping();
+                      });
                     },
                   ),
                 for (final entry in named.entries)
@@ -243,7 +263,7 @@ class _GroupsScreenState extends State<GroupsScreen> with SingleTickerProviderSt
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       children: [
                         _chipButton(s.all, 'all'),
-                        _chipButton(unreadCount > 0 ? '${s.unread} $unreadCount' : s.unread, 'unread'),
+                        _chipButton(s.unread, 'unread', count: unreadCount),
                         _chipButton(s.favourite, 'fav'),
                       ],
                     ),
@@ -268,7 +288,7 @@ class _GroupsScreenState extends State<GroupsScreen> with SingleTickerProviderSt
     );
   }
 
-  Widget _chipButton(String label, String value) {
+  Widget _chipButton(String label, String value, {int count = 0}) {
     final on = _chip == value;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
@@ -299,13 +319,38 @@ class _GroupsScreenState extends State<GroupsScreen> with SingleTickerProviderSt
                       ]
                     : null,
               ),
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: on ? const Color(0xFF06221C) : AppColors.ink,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13.5,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: on ? const Color(0xFF06221C) : AppColors.ink,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                  if (count > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: on
+                            ? const Color(0xFFE53935)
+                            : const Color(0xFF25D366),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$count',
+                        style: TextStyle(
+                          color: on ? Colors.white : Colors.black,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             );
           },

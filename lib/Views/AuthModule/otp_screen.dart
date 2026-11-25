@@ -135,6 +135,7 @@ class _OtpScreenState extends State<OtpScreen> {
         await TokenStorage.instance.saveLogin(data, phone: widget.rawPhone);
         MyProfile.name = TokenStorage.instance.name;
         MyProfile.bio = TokenStorage.instance.about;
+        MyProfile.photoUrl = TokenStorage.instance.photoUrl;
         if (!mounted) return;
         Navigator.of(
           context,

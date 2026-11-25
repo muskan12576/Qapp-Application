@@ -221,7 +221,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
                       _action(Icons.person_add_alt_1_rounded, s.newContact, () {
                         Navigator.of(
                           context,
-                        ).push(qRoute(const _NewContactScreen()));
+                        ).push(qRoute(const NewContactScreen()));
                       }),
                     ],
                   ),
@@ -382,14 +382,17 @@ class _NewChatScreenState extends State<NewChatScreen> {
   }
 }
 
-class _NewContactScreen extends StatefulWidget {
-  const _NewContactScreen();
+class NewContactScreen extends StatefulWidget {
+  const NewContactScreen({super.key, this.initialName, this.initialPhone});
+
+  final String? initialName;
+  final String? initialPhone;
 
   @override
-  State<_NewContactScreen> createState() => _NewContactScreenState();
+  State<NewContactScreen> createState() => _NewContactScreenState();
 }
 
-class _NewContactScreenState extends State<_NewContactScreen> {
+class _NewContactScreenState extends State<NewContactScreen> {
   final _first = TextEditingController();
   final _last = TextEditingController();
   final _company = TextEditingController();
@@ -401,6 +404,21 @@ class _NewContactScreenState extends State<_NewContactScreen> {
   var _cloud = true;
   Country _country = countryByIso('IN');
   DateTime? _birthday;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialName != null && widget.initialName!.trim().isNotEmpty) {
+      final parts = widget.initialName!.trim().split(' ');
+      _first.text = parts[0];
+      if (parts.length > 1) {
+        _last.text = parts.sublist(1).join(' ');
+      }
+    }
+    if (widget.initialPhone != null && widget.initialPhone!.trim().isNotEmpty) {
+      _phone.text = widget.initialPhone!.trim();
+    }
+  }
 
   @override
   void dispose() {
@@ -842,7 +860,7 @@ class _SavedContact extends StatelessWidget {
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () {
-                          Navigator.of(context).pushReplacement(qRoute(const _NewContactScreen()));
+                          Navigator.of(context).pushReplacement(qRoute(const NewContactScreen()));
                         },
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppColors.ink,
@@ -1330,7 +1348,7 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
                     if (_step == 0)
                       TextButton.icon(
                         onPressed: () async {
-                          await Navigator.of(context).push(qRoute(const _NewContactScreen()));
+                          await Navigator.of(context).push(qRoute(const NewContactScreen()));
                           if (mounted) {
                             setState(() {});
                           }

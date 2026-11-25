@@ -6,10 +6,15 @@ import 'package:qapp/Services/speech_service.dart';
 import 'package:qapp/Services/tts_service.dart';
 import 'package:qapp/Views/AiAssistantModule/model/ai_assistant_service.dart';
 import 'package:qapp/Views/AiAssistantModule/widgets/gemini_live_orb.dart';
+import 'package:qapp/Views/AuthModule/profile_screen.dart';
+import 'package:qapp/Views/CallModule/calls_screen.dart';
 import 'package:qapp/Views/CallModule/group_call_screen.dart';
 import 'package:qapp/Views/CallModule/voice_call_screen.dart';
 import 'package:qapp/Views/CallModule/video_call_screen.dart';
 import 'package:qapp/Views/ChatModule/chat_open_screen.dart';
+import 'package:qapp/Views/ChatModule/new_chat_screen.dart';
+import 'package:qapp/Views/ProfileModule/settings_screen.dart';
+import 'package:qapp/Views/StatusModule/status_screen.dart';
 import 'package:qapp/data/demo_data.dart';
 import 'package:qapp/main.dart';
 import 'package:qapp/theme/app_theme.dart';
@@ -38,7 +43,7 @@ class _AiVoiceAssistantSheetState extends State<AiVoiceAssistantSheet> {
   bool _isSpeaking = false;
   StreamSubscription? _ttsSub;
 
-  String _assistantPrompt = "Haan ji, boliye! Main sun raha hoon. Kya karna hai?";
+  String _assistantPrompt = "Haan ji, boliye! Main sun rahi hoon. Kya karna hai?";
   String _recognizedSpeech = "";
   Map<String, dynamic>? _conversationContext;
   List<dynamic>? _duplicateContacts;
@@ -56,7 +61,7 @@ class _AiVoiceAssistantSheetState extends State<AiVoiceAssistantSheet> {
   }
 
   Future<void> _greetAndListen() async {
-    const greeting = "Haan ji, boliye! Main sun raha hoon. Kya karna hai?";
+    const greeting = "Haan ji, boliye! Main sun rahi hoon. Kya karna hai?";
     await _speakAndListen(greeting, keepListening: true);
   }
 
@@ -131,8 +136,10 @@ class _AiVoiceAssistantSheetState extends State<AiVoiceAssistantSheet> {
         if (status == 'notListening' || status == 'done') {
           _speechSilenceTimer?.cancel();
           if (mounted && !_isProcessing) {
-            if (_recognizedSpeech.trim().isNotEmpty) {
-              _onSpeechComplete(_recognizedSpeech.trim());
+            final pending = _recognizedSpeech.trim();
+            _recognizedSpeech = "";
+            if (pending.isNotEmpty) {
+              _onSpeechComplete(pending);
             } else {
               setState(() => _isListening = false);
             }
@@ -155,8 +162,10 @@ class _AiVoiceAssistantSheetState extends State<AiVoiceAssistantSheet> {
     if (_isListening) {
       await SpeechService.instance.stopListening();
       setState(() => _isListening = false);
-      if (_recognizedSpeech.trim().isNotEmpty) {
-        _onSpeechComplete(_recognizedSpeech.trim());
+      final pending = _recognizedSpeech.trim();
+      _recognizedSpeech = "";
+      if (pending.isNotEmpty) {
+        _onSpeechComplete(pending);
       }
     } else {
       await TtsService.instance.stop();
@@ -164,13 +173,43 @@ class _AiVoiceAssistantSheetState extends State<AiVoiceAssistantSheet> {
     }
   }
 
+  DateTime? _lastSpeechCompletedAt;
+
   Future<void> _onSpeechComplete(String speechText) async {
     _speechSilenceTimer?.cancel();
     if (_isProcessing) return;
-    await SpeechService.instance.stopListening();
+
+    // Debounce to prevent 1 message firing multiple times within 1.5s
+    final now = DateTime.now();
+    if (_lastSpeechCompletedAt != null &&
+        now.difference(_lastSpeechCompletedAt!) < const Duration(milliseconds: 1500)) {
+      debugPrint('⚠️ [ASSISTANT] Duplicate rapid speech trigger ignored');
+      return;
+    }
+    _lastSpeechCompletedAt = now;
+
+    // Immediately lock processing state synchronously!
+    _isProcessing = true;
+    _isListening = false;
+    final textToProcess = speechText.trim();
+    _recognizedSpeech = "";
+
+    if (mounted) {
+      setState(() {
+        _isProcessing = true;
+        _isListening = false;
+        _duplicateContacts = null;
+        _recognizedSpeech = textToProcess;
+        _assistantPrompt = "Sun raha hoon...";
+      });
+    }
+
+    try {
+      await SpeechService.instance.stopListening();
+    } catch (_) {}
     if (!mounted) return;
 
-    final lower = speechText.toLowerCase().trim();
+    final lower = textToProcess.toLowerCase();
 
     // Check if user wants to close / cancel assistant by voice
     if (lower == "cancel" ||
@@ -193,17 +232,8 @@ class _AiVoiceAssistantSheetState extends State<AiVoiceAssistantSheet> {
       return;
     }
 
-    // Process command with Gemini AI backend
-    setState(() {
-      _isProcessing = true;
-      _isListening = false;
-      _duplicateContacts = null;
-      _recognizedSpeech = speechText;
-      _assistantPrompt = "Sun raha hoon...";
-    });
-
     final response = await AiAssistantService.instance.sendVoiceCommand(
-      speechText,
+      textToProcess,
       context: _conversationContext,
     );
 
@@ -215,6 +245,116 @@ class _AiVoiceAssistantSheetState extends State<AiVoiceAssistantSheet> {
         "Server se connect nahi ho sake ji. Dobara koshish karein?",
         keepListening: true,
       );
+      return;
+    }
+
+    // Handle IGNORED_DUPLICATE from backend
+    if (response.intent == "IGNORED_DUPLICATE") {
+      return;
+    }
+
+    // Handle ADD_CONTACT
+    if (response.intent == "ADD_CONTACT") {
+      await _speakAndListen(
+        response.responsePrompt.isNotEmpty
+            ? response.responsePrompt
+            : "Naya contact add karne ki screen khol rahe hain...",
+        keepListening: false,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      GlobalVariable.navState.currentState?.push(
+        qRoute(
+          NewContactScreen(
+            initialName: response.contactName,
+            initialPhone: response.phoneNumber,
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Handle OPEN_SETTINGS
+    if (response.intent == "OPEN_SETTINGS") {
+      await _speakAndListen(
+        response.responsePrompt.isNotEmpty
+            ? response.responsePrompt
+            : "Settings khol rahe hain...",
+        keepListening: false,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      GlobalVariable.navState.currentState?.push(qRoute(const SettingsScreen()));
+      return;
+    }
+
+    // Handle OPEN_PROFILE
+    if (response.intent == "OPEN_PROFILE") {
+      await _speakAndListen(
+        response.responsePrompt.isNotEmpty
+            ? response.responsePrompt
+            : "Profile khol rahe hain...",
+        keepListening: false,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      GlobalVariable.navState.currentState?.push(qRoute(const ProfileScreen()));
+      return;
+    }
+
+    // Handle OPEN_STATUS
+    if (response.intent == "OPEN_STATUS") {
+      await _speakAndListen(
+        response.responsePrompt.isNotEmpty
+            ? response.responsePrompt
+            : "Status screen khol rahe hain...",
+        keepListening: false,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      GlobalVariable.navState.currentState?.push(qRoute(const StatusScreen()));
+      return;
+    }
+
+    // Handle OPEN_CALLS
+    if (response.intent == "OPEN_CALLS") {
+      await _speakAndListen(
+        response.responsePrompt.isNotEmpty
+            ? response.responsePrompt
+            : "Call history khol rahe hain...",
+        keepListening: false,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      GlobalVariable.navState.currentState?.push(qRoute(const CallsScreen()));
+      return;
+    }
+
+    // Handle NEW_GROUP
+    if (response.intent == "NEW_GROUP") {
+      await _speakAndListen(
+        response.responsePrompt.isNotEmpty
+            ? response.responsePrompt
+            : "Naya group banane ki screen khol rahe hain...",
+        keepListening: false,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      GlobalVariable.navState.currentState?.push(qRoute(const NewGroupScreen(popCount: 1)));
+      return;
+    }
+
+    // Handle OPEN_CONTACTS
+    if (response.intent == "OPEN_CONTACTS") {
+      await _speakAndListen(
+        response.responsePrompt.isNotEmpty
+            ? response.responsePrompt
+            : "Contacts list khol rahe hain...",
+        keepListening: false,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      GlobalVariable.navState.currentState?.push(qRoute(const NewChatScreen()));
       return;
     }
 
@@ -628,7 +768,7 @@ class _AiVoiceAssistantSheetState extends State<AiVoiceAssistantSheet> {
                         style: TextStyle(
                           color: _isListening
                               ? const Color(0xFF174EA6)
-                              : AppColors.ink,
+                              : Colors.black87,
                           fontSize: 15,
                           height: 1.35,
                           fontWeight: FontWeight.w600,

@@ -23,6 +23,79 @@ class _CallsScreenState extends State<CallsScreen> {
   List<Map<String, dynamic>> _calls = [];
   bool _loading = true;
   Timer? _refreshTimer;
+  String _activeFilter = 'All';
+
+  List<Map<String, dynamic>> get _filteredCalls {
+    if (_activeFilter == 'Incoming') {
+      return _calls.where((c) {
+        final d = c['direction']?.toString().toLowerCase() ?? '';
+        final status = c['status']?.toString().toLowerCase() ?? '';
+        return d == 'incoming' && status != 'missed' && status != 'no_answer';
+      }).toList();
+    } else if (_activeFilter == 'Outgoing') {
+      return _calls.where((c) {
+        final d = c['direction']?.toString().toLowerCase() ?? '';
+        return d == 'outgoing';
+      }).toList();
+    } else if (_activeFilter == 'Missed') {
+      return _calls.where((c) {
+        final d = c['direction']?.toString().toLowerCase() ?? '';
+        final status = c['status']?.toString().toLowerCase() ?? '';
+        return d == 'missed' || status == 'missed' || status == 'no_answer' || status == 'rejected';
+      }).toList();
+    }
+    return _calls;
+  }
+
+  Widget _filterChip(String label, int count) {
+    final active = _activeFilter == label;
+    return GestureDetector(
+      onTap: () => setState(() => _activeFilter = label),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: active ? AppColors.accent.withValues(alpha: 0.18) : AppColors.card,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? AppColors.accent : Colors.white12,
+            width: active ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: active ? AppColors.accent : AppColors.inkSoft,
+                fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+            if (count > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: active ? const Color(0xFFE53935) : AppColors.surface,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: active ? Colors.white : AppColors.inkSoft,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -145,9 +218,34 @@ class _CallsScreenState extends State<CallsScreen> {
                 ),
               ),
 
+              // Filter Chips
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Row(
+                  children: [
+                    _filterChip('All', _calls.length),
+                    const SizedBox(width: 8),
+                    _filterChip('Incoming', _calls.where((c) {
+                      final d = c['direction']?.toString().toLowerCase() ?? '';
+                      final status = c['status']?.toString().toLowerCase() ?? '';
+                      return d == 'incoming' && status != 'missed' && status != 'no_answer';
+                    }).length),
+                    const SizedBox(width: 8),
+                    _filterChip('Outgoing', _calls.where((c) => (c['direction']?.toString().toLowerCase() ?? '') == 'outgoing').length),
+                    const SizedBox(width: 8),
+                    _filterChip('Missed', _calls.where((c) {
+                      final d = c['direction']?.toString().toLowerCase() ?? '';
+                      final status = c['status']?.toString().toLowerCase() ?? '';
+                      return d == 'missed' || status == 'missed' || status == 'no_answer' || status == 'rejected';
+                    }).length),
+                  ],
+                ),
+              ),
+
               // Section Subtitle
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: Text(
                   'Recent',
                   style: TextStyle(
@@ -227,16 +325,30 @@ class _CallsScreenState extends State<CallsScreen> {
                                 ),
                               ],
                             )
-                          : ListView.separated(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              itemCount: _calls.length,
-                              separatorBuilder: (context, idx) => Divider(
-                                color: AppColors.ink.withValues(alpha: 0.08),
-                                height: 1,
-                                indent: 64,
-                              ),
-                              itemBuilder: (context, index) {
-                                final call = _calls[index];
+                          : Builder(
+                              builder: (context) {
+                                final displayCalls = _filteredCalls;
+                                if (displayCalls.isEmpty) {
+                                  return Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(24),
+                                      child: Text(
+                                        'No $_activeFilter calls found',
+                                        style: TextStyle(color: AppColors.inkSoft, fontSize: 14),
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return ListView.separated(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  itemCount: displayCalls.length,
+                                  separatorBuilder: (context, idx) => Divider(
+                                    color: AppColors.ink.withValues(alpha: 0.08),
+                                    height: 1,
+                                    indent: 64,
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    final call = displayCalls[index];
                                 final peerName = call['peer_name']?.toString() ?? 'User';
                                 final peerPhoto = call['peer_photo']?.toString();
                                 final kind = call['kind']?.toString() ?? 'voice';
@@ -329,7 +441,9 @@ class _CallsScreenState extends State<CallsScreen> {
                                   },
                                 );
                               },
-                            ),
+                            );
+                          },
+                        ),
                 ),
               ),
             ],

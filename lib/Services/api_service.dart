@@ -149,13 +149,16 @@ class ApiBaseService {
   }
 
   static DateTime? _lastNetworkErrorPopup;
+  static bool _isNetworkDialogOpen = false;
 
   static void showNetworkErrorDialog(String message) {
+    if (_isNetworkDialogOpen) return;
     final now = DateTime.now();
     if (_lastNetworkErrorPopup != null &&
-        now.difference(_lastNetworkErrorPopup!).inSeconds < 5) {
+        now.difference(_lastNetworkErrorPopup!).inSeconds < 60) {
       return;
     }
+    _isNetworkDialogOpen = true;
     _lastNetworkErrorPopup = now;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AppDialog.show(
@@ -164,7 +167,11 @@ class ApiBaseService {
         message:
             "Server ya internet se connect nahi ho pa rahe hain. Kripya apna connection check karein.",
         confirmText: "Theek hai",
-      );
+      ).then((_) {
+        _isNetworkDialogOpen = false;
+      }).catchError((_) {
+        _isNetworkDialogOpen = false;
+      });
     });
   }
 
@@ -172,12 +179,12 @@ class ApiBaseService {
     showNetworkErrorDialog(e.toString());
     if (e is SocketException) {
       return ApiException('No Internet connection');
+    } else if (e is TimeoutException) {
+      return ApiException('Request timed out');
     } else if (e is HttpException) {
       return ApiException('Failed to perform $method request');
     } else if (e is FormatException) {
       return ApiException('Bad response format');
-    } else if (e is TimeoutException) {
-      return ApiException('Request timed out');
     } else if (e is ApiException) {
       return e;
     }

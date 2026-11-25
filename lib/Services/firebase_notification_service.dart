@@ -203,6 +203,13 @@ class FirebaseNotificationService {
       final chatId = data['chatId']?.toString();
       final senderId = data['senderId']?.toString();
 
+      final blockedList = prefs.getStringList('qapp_blocked_users') ?? [];
+      if ((chatId != null && blockedList.contains(chatId)) ||
+          (senderId != null && blockedList.contains(senderId))) {
+        debugPrint('🚫 [FCM] Notification suppressed because user is blocked in prefs');
+        return;
+      }
+
       final mutedList = prefs.getStringList('qapp_muted_threads') ?? [];
       if (!isCall && ((chatId != null && mutedList.contains(chatId)) ||
           (senderId != null && mutedList.contains(senderId)))) {
@@ -223,14 +230,14 @@ class FirebaseNotificationService {
       return;
     }
 
-    // Suppress notification if thread is muted
+    // Suppress notification if thread is blocked or muted
     if (chatId != null || senderId != null) {
-      final isMuted = ChatBook.instance.threads.any((t) =>
+      final isBlockedOrMuted = ChatBook.instance.threads.any((t) =>
           ((chatId != null && t.chatId == chatId) ||
            (senderId != null && t.peerId == senderId)) &&
-          t.muted);
-      if (isMuted) {
-        debugPrint('🔇 [FCM] Notification suppressed because chat thread is muted');
+          (t.blocked || t.blockedByPeer || (!isCall && t.muted)));
+      if (isBlockedOrMuted) {
+        debugPrint('🚫 [FCM] Notification suppressed because chat thread is blocked or muted');
         return;
       }
     }
@@ -303,6 +310,20 @@ class FirebaseNotificationService {
       if (ChatOpenScreen.activeChatId != null &&
           (ChatOpenScreen.activeChatId == chatId || ChatOpenScreen.activeChatId == senderId)) {
         return;
+      }
+
+      final blockedList = prefs.getStringList('qapp_blocked_users') ?? [];
+      if ((chatId != null && blockedList.contains(chatId)) ||
+          (senderId != null && blockedList.contains(senderId))) {
+        return;
+      }
+
+      if (chatId != null || senderId != null) {
+        final isBlocked = ChatBook.instance.threads.any((t) =>
+            ((chatId != null && t.chatId == chatId) ||
+             (senderId != null && t.peerId == senderId)) &&
+            (t.blocked || t.blockedByPeer));
+        if (isBlocked) return;
       }
 
       final mutedList = prefs.getStringList('qapp_muted_threads') ?? [];

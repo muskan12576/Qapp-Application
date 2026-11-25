@@ -312,10 +312,6 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
     try {
       final file = await FilePicker.pickFile(type: type, compressionQuality: 65);
       if (file == null || !mounted) return;
-      final isVideo = file.name.endsWith('.mp4') ||
-          file.name.endsWith('.mov') ||
-          file.name.endsWith('.m4v') ||
-          file.name.endsWith('.webm');
       final bytes = await file.readAsBytes();
       if (!mounted) return;
       setState(() {
@@ -323,29 +319,33 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
         _pickedName = file.name;
         _mode = 'media';
       });
-      if (isVideo && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Video Status: Maximum 30 seconds limit apply hoga.'),
-            backgroundColor: AppColors.accent,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
     } catch (_) {}
   }
 
-  Future<void> _pasteLink() async {
-    final cdata = await Clipboard.getData(Clipboard.kTextPlain);
-    if (cdata?.text != null && cdata!.text!.trim().isNotEmpty) {
-      _linkCtrl.text = cdata.text!.trim();
-      _onLinkChanged(cdata.text!.trim());
+  void _onCaptionChanged(String text) {
+    final regExp = RegExp(r'https?://[^\s]+');
+    final match = regExp.firstMatch(text);
+    if (match != null) {
+      final url = match.group(0)!;
+      _linkCtrl.text = url;
+      _onLinkChanged(url);
+    } else if (_linkPreview != null && _linkCtrl.text.isNotEmpty) {
+      _linkCtrl.clear();
+      setState(() => _linkPreview = null);
     }
   }
 
   Future<void> _save() async {
     final captionText = _caption.text.trim();
-    final linkText = _linkCtrl.text.trim();
+    var linkText = _linkCtrl.text.trim();
+
+    if (linkText.isEmpty) {
+      final regExp = RegExp(r'https?://[^\s]+');
+      final match = regExp.firstMatch(captionText);
+      if (match != null) {
+        linkText = match.group(0)!;
+      }
+    }
 
     if (_bytes == null && captionText.isEmpty && linkText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -501,7 +501,6 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
                         children: [
                           // Left Card: Open Camera / Picked Media
                           Expanded(
-                            flex: 11,
                             child: GestureDetector(
                               onTap: () => _pickGallery(FileType.any),
                               child: Container(
@@ -543,7 +542,7 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
                                                   ),
                                                   const SizedBox(height: 4),
                                                   const Text(
-                                                    '30s Status Video',
+                                                    'Video Status',
                                                     style: TextStyle(color: Colors.white70, fontSize: 11),
                                                   ),
                                                 ],
@@ -579,7 +578,7 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
                                                 const Icon(Icons.camera_alt_outlined, color: Colors.white, size: 18),
                                                 const SizedBox(width: 8),
                                                 Text(
-                                                  _bytes != null ? 'Change Photo' : 'Open Camera',
+                                                  _bytes != null ? 'Change Media' : 'Open Camera',
                                                   style: const TextStyle(
                                                     color: Colors.white,
                                                     fontSize: 13,
@@ -616,34 +615,31 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 14),
 
-                          // Right Column: Text Status & Paste YouTube Link
+                          // Right Card: Text Status (Aa)
                           Expanded(
-                            flex: 10,
-                            child: Column(
-                              children: [
-                                // Top Right Card: Text Status (Aa)
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: _showTextStatusDialog,
-                                    child: Container(
-                                      width: double.infinity,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(20),
-                                        gradient: const LinearGradient(
-                                          colors: [Color(0xFF34D399), Color(0xFF10B981)],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: const Color(0xFF10B981).withValues(alpha: 0.3),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 3),
-                                          ),
-                                        ],
-                                      ),
+                            child: GestureDetector(
+                              onTap: _showTextStatusDialog,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(20),
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF34D399), Color(0xFF10B981)],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF10B981).withValues(alpha: 0.3),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: Stack(
+                                  children: [
+                                    Center(
                                       child: Column(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
@@ -651,7 +647,7 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
                                             'Aa',
                                             style: TextStyle(
                                               color: Colors.white,
-                                              fontSize: 34,
+                                              fontSize: 42,
                                               fontWeight: FontWeight.w900,
                                               letterSpacing: -0.5,
                                               shadows: [
@@ -663,82 +659,51 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
                                               ],
                                             ),
                                           ),
-                                          const SizedBox(height: 2),
+                                          const SizedBox(height: 6),
                                           const Text(
                                             'Text Status',
                                             style: TextStyle(
                                               color: Colors.white,
-                                              fontSize: 12,
+                                              fontSize: 15,
                                               fontWeight: FontWeight.w700,
                                             ),
                                           ),
                                         ],
                                       ),
                                     ),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-
-                                // Bottom Right Card: Paste YouTube Link
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: _showLinkDialog,
-                                    child: Container(
-                                      width: double.infinity,
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(20),
-                                        color: AppColors.card,
-                                        border: Border.all(color: Colors.white12),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withValues(alpha: 0.08),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 2),
-                                          ),
-                                        ],
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          // Red YouTube Logo icon
-                                          Container(
-                                            width: 28,
-                                            height: 20,
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFFF0000),
-                                              borderRadius: BorderRadius.circular(6),
-                                            ),
-                                            child: const Center(
-                                              child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 16),
+                                    Positioned(
+                                      bottom: 12,
+                                      left: 12,
+                                      right: 12,
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: BackdropFilter(
+                                          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                            color: Colors.black.withValues(alpha: 0.22),
+                                            child: const Row(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Icon(Icons.edit_rounded, color: Colors.white, size: 16),
+                                                SizedBox(width: 6),
+                                                Text(
+                                                  'Type Status',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            'Paste YouTube\nLink',
-                                            style: TextStyle(
-                                              color: AppColors.ink,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w800,
-                                              height: 1.15,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            'Link daalein',
-                                            style: TextStyle(
-                                              color: AppColors.inkSoft.withValues(alpha: 0.65),
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ],
+                                        ),
                                       ),
                                     ),
-                                  ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
                         ],
@@ -769,54 +734,11 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
                       ),
                       const SizedBox(height: 16),
                     ],
-
-                    // 3. Recent Gallery Header matching Image 2
-                    Row(
-                      children: [
-                        Text(
-                          'Recent Gallery',
-                          style: TextStyle(
-                            color: AppColors.ink,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const Spacer(),
-                        GestureDetector(
-                          onTap: () => _pickGallery(FileType.any),
-                          child: const Text(
-                            'View All',
-                            style: TextStyle(
-                              color: Color(0xFF10B981),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-
-                    // 4. 2x3 Media Gallery Grid matching Image 2
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: 6,
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
-                        childAspectRatio: 1.0,
-                      ),
-                      itemBuilder: (context, index) {
-                        return _buildGalleryGridItem(index);
-                      },
-                    ),
                   ],
                 ),
               ),
 
-              // 5. Bottom Caption & Share Bar matching Image 2
+              // Bottom Caption & Share Bar
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
                 child: Container(
@@ -846,6 +768,7 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
                       Expanded(
                         child: TextField(
                           controller: _caption,
+                          onChanged: _onCaptionChanged,
                           textCapitalization: TextCapitalization.sentences,
                           style: TextStyle(color: AppColors.ink, fontSize: 14),
                           cursorColor: const Color(0xFF10B981),
@@ -889,72 +812,6 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
     );
   }
 
-  Widget _buildGalleryGridItem(int index) {
-    // Curated high quality sample images matching the aesthetic in Image 2
-    final sampleImages = [
-      'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=300&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=300&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1512820790803-83ca734da794?w=300&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=300&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1495360010541-f48722b34f7d?w=300&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=300&auto=format&fit=crop&q=80',
-    ];
-
-    return GestureDetector(
-      onTap: () => _pickGallery(FileType.any),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          color: AppColors.card,
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Image.network(
-              sampleImages[index % sampleImages.length],
-              fit: BoxFit.cover,
-            ),
-            // Translucent black tint
-            Container(color: Colors.black.withValues(alpha: 0.18)),
-            // Circular Play Icon
-            Center(
-              child: Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
-              ),
-            ),
-            // Duration Badge "0:15" matching Image 2
-            Positioned(
-              bottom: 6,
-              right: 6,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.65),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  '0:15',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _showTextStatusDialog() {
     final textCtrl = TextEditingController(text: _caption.text);
     showDialog(
@@ -988,63 +845,10 @@ class _AddStatusScreenState extends State<AddStatusScreen> {
                 _caption.text = textCtrl.text;
                 _mode = 'text';
               });
+              _onCaptionChanged(textCtrl.text);
               Navigator.pop(ctx);
             },
             child: const Text('Done', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showLinkDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.card,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.smart_display_rounded, color: Colors.red, size: 20),
-            ),
-            const SizedBox(width: 8),
-            const Text('Paste Video / YouTube Link', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-          ],
-        ),
-        content: TextField(
-          controller: _linkCtrl,
-          autofocus: true,
-          style: TextStyle(color: AppColors.ink),
-          decoration: InputDecoration(
-            hintText: 'https://youtube.com/... ya video link',
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.paste_rounded, color: Colors.redAccent),
-              onPressed: _pasteLink,
-            ),
-          ),
-          onChanged: _onLinkChanged,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            ),
-            onPressed: () {
-              Navigator.pop(ctx);
-              _onLinkChanged(_linkCtrl.text);
-            },
-            child: const Text('Add Link', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

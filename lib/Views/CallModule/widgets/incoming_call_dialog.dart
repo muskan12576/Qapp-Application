@@ -54,7 +54,7 @@ class _IncomingCallDialogState extends State<IncomingCallDialog>
       FlutterRingtonePlayer().playRingtone(
         looping: true,
         volume: 1.0,
-        asAlarm: false,
+        asAlarm: true,
       );
     } catch (_) {}
 

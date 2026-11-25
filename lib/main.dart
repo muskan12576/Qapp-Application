@@ -33,6 +33,7 @@ void main() async {
   }
 
   _paintBars();
+  await AppLang.instance.init();
   runApp(const Qapp());
   SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
 

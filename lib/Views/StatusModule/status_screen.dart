@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:qapp/Utills/app_utils.dart';
 import 'package:qapp/Views/StatusModule/model/status_vm.dart';
 import 'package:qapp/Views/StatusModule/my_status_screen.dart';
@@ -31,11 +32,137 @@ class _StatusScreenState extends State<StatusScreen> {
   List<Map<String, dynamic>> _othersData = [];
   bool _loading = true;
   StreamSubscription? _statusSub;
+  String _privacySetting = 'contacts';
+  bool _hideViewed = false;
 
   @override
   void initState() {
     super.initState();
+    _loadPrivacySetting();
     _loadFeed();
+  }
+
+  Future<void> _loadPrivacySetting() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          _privacySetting = prefs.getString('status_privacy_option') ?? 'contacts';
+          _hideViewed = prefs.getBool('status_hide_viewed') ?? false;
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _showPrivacySettingsSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Icon(Icons.privacy_tip_rounded, color: AppColors.accent, size: 22),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Status Privacy',
+                        style: TextStyle(
+                          color: AppColors.ink,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Who can see your status updates',
+                    style: TextStyle(color: AppColors.inkSoft, fontSize: 13),
+                  ),
+                  const SizedBox(height: 14),
+                  RadioListTile<String>(
+                    value: 'contacts',
+                    groupValue: _privacySetting,
+                    activeColor: AppColors.accent,
+                    title: Text('My contacts', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                    subtitle: Text('Share with all contacts', style: TextStyle(color: AppColors.inkSoft, fontSize: 12)),
+                    onChanged: (val) async {
+                      if (val == null) return;
+                      setState(() => _privacySetting = val);
+                      setModalState(() {});
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('status_privacy_option', val);
+                    },
+                  ),
+                  RadioListTile<String>(
+                    value: 'except',
+                    groupValue: _privacySetting,
+                    activeColor: AppColors.accent,
+                    title: Text('My contacts except...', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                    subtitle: Text('Hide status from specific people', style: TextStyle(color: AppColors.inkSoft, fontSize: 12)),
+                    onChanged: (val) async {
+                      if (val == null) return;
+                      setState(() => _privacySetting = val);
+                      setModalState(() {});
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('status_privacy_option', val);
+                    },
+                  ),
+                  RadioListTile<String>(
+                    value: 'only',
+                    groupValue: _privacySetting,
+                    activeColor: AppColors.accent,
+                    title: Text('Only share with...', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                    subtitle: Text('Only selected contacts can view', style: TextStyle(color: AppColors.inkSoft, fontSize: 12)),
+                    onChanged: (val) async {
+                      if (val == null) return;
+                      setState(() => _privacySetting = val);
+                      setModalState(() {});
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('status_privacy_option', val);
+                    },
+                  ),
+                  const Divider(color: Colors.white12),
+                  SwitchListTile(
+                    activeColor: AppColors.accent,
+                    value: _hideViewed,
+                    title: Text('Hide viewed updates', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                    subtitle: Text('Hide already seen status from list', style: TextStyle(color: AppColors.inkSoft, fontSize: 12)),
+                    onChanged: (val) async {
+                      setState(() => _hideViewed = val);
+                      setModalState(() {});
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setBool('status_hide_viewed', val);
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _loadFeed() async {
@@ -128,10 +255,12 @@ class _StatusScreenState extends State<StatusScreen> {
       return sts.any((s) => s['hasViewed'] != true);
     }).toList();
 
-    final viewed = filteredOthers.where((u) {
-      final sts = (u['statuses'] as List? ?? []);
-      return sts.isNotEmpty && sts.every((s) => s['hasViewed'] == true);
-    }).toList();
+    final viewed = _hideViewed
+        ? <Map<String, dynamic>>[]
+        : filteredOthers.where((u) {
+            final sts = (u['statuses'] as List? ?? []);
+            return sts.isNotEmpty && sts.every((s) => s['hasViewed'] == true);
+          }).toList();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -159,6 +288,20 @@ class _StatusScreenState extends State<StatusScreen> {
                           width: 42,
                           height: 42,
                           child: Icon(Icons.refresh_rounded, color: AppColors.ink),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Material(
+                      color: AppColors.bubbleIn,
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: _showPrivacySettingsSheet,
+                        child: SizedBox(
+                          width: 42,
+                          height: 42,
+                          child: Icon(Icons.more_vert_rounded, color: AppColors.ink),
                         ),
                       ),
                     ),
@@ -204,6 +347,7 @@ class _StatusScreenState extends State<StatusScreen> {
                       : s.tapStatus,
                   colorIndex: 2,
                   bytes: MyProfile.photo,
+                  photo: MyProfile.photoUrl,
                   badge: true,
                   hasStories: hasMyStatus,
                   seen: true,

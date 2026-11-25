@@ -95,10 +95,10 @@ class ChatThread {
     this.myRole = 'member',
   });
 
-  final String name;
-  final String header;
+  String name;
+  String header;
   final int colorIndex;
-  final String phone;
+  String phone;
   final String about;
   final String? photo;
   final Uint8List? photoBytes;
@@ -133,6 +133,7 @@ class ChatThread {
 
 class MyProfile {
   static Uint8List? photo;
+  static String? photoUrl;
   static String name = '';
   static String bio = '';
 }
@@ -474,12 +475,30 @@ class ChatBook extends ChangeNotifier {
           lt.themeIndex = thIdx;
         }
 
+        // Restore custom edited contact name and phone
+        final savedName = prefs.getString('qapp_alias_name_$idKey') ??
+            (lt.peerId != null ? prefs.getString('qapp_alias_name_${lt.peerId}') : null) ??
+            (lt.chatId != null ? prefs.getString('qapp_alias_name_${lt.chatId}') : null);
+        final savedPhone = prefs.getString('qapp_alias_phone_$idKey') ??
+            (lt.peerId != null ? prefs.getString('qapp_alias_phone_${lt.peerId}') : null) ??
+            (lt.chatId != null ? prefs.getString('qapp_alias_phone_${lt.chatId}') : null);
+        if (savedName != null && savedName.trim().isNotEmpty) {
+          lt.header = savedName.trim();
+          lt.name = savedName.trim();
+        }
+        if (savedPhone != null && savedPhone.trim().isNotEmpty) {
+          lt.phone = savedPhone.trim();
+        }
+
         for (final existing in threads) {
           if ((lt.chatId != null && existing.chatId == lt.chatId) ||
               (lt.peerId != null && existing.peerId == lt.peerId)) {
             if (existing.messages.isNotEmpty) {
               lt.messages.clear();
               lt.messages.addAll(existing.messages);
+            }
+            if (existing.unread == 0) {
+              lt.unread = 0;
             }
             if (existing.pinned) lt.pinned = true;
             if (existing.favourite) lt.favourite = true;
@@ -502,6 +521,7 @@ class ChatBook extends ChangeNotifier {
 
   Future<void> togglePin(ChatThread thread) async {
     thread.pinned = !thread.pinned;
+    notifyListeners(); // Synchronous immediate UI update
     try {
       final prefs = await SharedPreferences.getInstance();
       final pinned = prefs.getStringList('qapp_pinned_chats') ?? [];
@@ -521,11 +541,11 @@ class ChatBook extends ChangeNotifier {
       }
       await prefs.setStringList('qapp_pinned_chats', pinned);
     } catch (_) {}
-    notifyListeners();
   }
 
   Future<void> toggleFavourite(ChatThread thread) async {
     thread.favourite = !thread.favourite;
+    notifyListeners(); // Synchronous immediate UI update
     try {
       final prefs = await SharedPreferences.getInstance();
       final favs = prefs.getStringList('qapp_favourite_threads') ?? [];
@@ -539,11 +559,11 @@ class ChatBook extends ChangeNotifier {
         await prefs.setStringList('qapp_favourite_threads', favs);
       }
     } catch (_) {}
-    notifyListeners();
   }
 
   Future<void> toggleMute(ChatThread thread) async {
     thread.muted = !thread.muted;
+    notifyListeners(); // Synchronous immediate UI update
     try {
       final prefs = await SharedPreferences.getInstance();
       final muted = prefs.getStringList('qapp_muted_threads') ?? [];
@@ -557,11 +577,11 @@ class ChatBook extends ChangeNotifier {
         await prefs.setStringList('qapp_muted_threads', muted);
       }
     } catch (_) {}
-    notifyListeners();
   }
 
   Future<void> toggleBlock(ChatThread thread) async {
     thread.blocked = !thread.blocked;
+    notifyListeners(); // Synchronous immediate UI update
     try {
       if (thread.peerId != null) {
         final prefs = await SharedPreferences.getInstance();

@@ -16,6 +16,8 @@ class AiVoiceCommandResponse {
   final bool keepListening;
   final bool isClosing;
   final Map<String, dynamic>? context;
+  final String? contactName;
+  final String? phoneNumber;
 
   AiVoiceCommandResponse({
     required this.intent,
@@ -31,6 +33,8 @@ class AiVoiceCommandResponse {
     this.keepListening = true,
     this.isClosing = false,
     this.context,
+    this.contactName,
+    this.phoneNumber,
   });
 
   factory AiVoiceCommandResponse.fromJson(Map<String, dynamic> json) {
@@ -49,6 +53,8 @@ class AiVoiceCommandResponse {
       keepListening: data['keepListening'] != false,
       isClosing: data['isClosing'] == true,
       context: data['context'] is Map ? Map<String, dynamic>.from(data['context']) : null,
+      contactName: data['contactName']?.toString() ?? data['contact_name']?.toString(),
+      phoneNumber: data['phoneNumber']?.toString() ?? data['phone_number']?.toString(),
     );
   }
 }

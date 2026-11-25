@@ -68,7 +68,8 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
   bool _isVoiceTyping = false;
   String _baseTextForVoice = '';
   late AnimationController _voiceBlinkCtrl;
-  Offset? _voiceFabOffset;
+  final ValueNotifier<Offset?> _voiceFabNotifier = ValueNotifier<Offset?>(null);
+  Offset? _fabDragPos;
 
   List<ChatMessage> get _messages => widget.thread.messages;
   ChatThread get thread => widget.thread;
@@ -142,9 +143,7 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
         final savedColor = prefs.getInt('qapp_wallpaper_color_$idKey');
         final savedTheme = prefs.getInt('qapp_theme_idx_$idKey');
         if (savedWp != null && savedWp.isNotEmpty) {
-          if (savedWp.startsWith('http') || File(savedWp).existsSync()) {
-            thread.wallpaperPath = savedWp;
-          }
+          thread.wallpaperPath = savedWp;
         }
         if (savedColor != null) {
           thread.wallpaperColor = savedColor;
@@ -504,14 +503,19 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
     });
 
     ChatSocketService.instance.socket?.on('chat:wallpaper_updated', (data) {
-      if (data is Map && data['chatId']?.toString() == thread.chatId && mounted) {
+      if (data is Map &&
+          data['chatId']?.toString() == thread.chatId &&
+          mounted) {
         setState(() {
-          if (data['wallpaperUrl'] != null && data['wallpaperUrl'].toString().isNotEmpty) {
+          if (data['wallpaperUrl'] != null &&
+              data['wallpaperUrl'].toString().isNotEmpty) {
             thread.wallpaperPath = data['wallpaperUrl'].toString();
             thread.wallpaperColor = null;
           } else if (data['wallpaperColor'] != null) {
             final colVal = data['wallpaperColor'];
-            thread.wallpaperColor = colVal is int ? colVal : int.tryParse(colVal.toString());
+            thread.wallpaperColor = colVal is int
+                ? colVal
+                : int.tryParse(colVal.toString());
             thread.wallpaperPath = null;
           } else {
             thread.wallpaperPath = null;
@@ -625,6 +629,7 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
     if (_isVoiceTyping) {
       SpeechService.instance.stopListening();
     }
+    _voiceFabNotifier.dispose();
     _voiceBlinkCtrl.dispose();
     _controller.dispose();
     _find.dispose();
@@ -850,7 +855,12 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
   }
 
   void _send() {
-    if (widget.thread.blocked) {
+    if (widget.thread.blocked || widget.thread.blockedByPeer) {
+      _toast(
+        widget.thread.blocked
+            ? 'Aapne is user ko block kar rakha hai.'
+            : 'You cannot send messages to this contact.',
+      );
       return;
     }
     if (_isVoiceTyping) {
@@ -944,6 +954,9 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
   void _headerAction(String value) {
     final thread = widget.thread;
     switch (value) {
+      case 'edit_contact':
+        _showEditContactDialog();
+        return;
       case 'pin':
         ChatBook.instance.togglePin(thread);
         setState(() {});
@@ -980,6 +993,181 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
     ChatBook.instance.ping();
   }
 
+  Future<void> _showEditContactDialog() async {
+    final thread = widget.thread;
+    final nameCtrl = TextEditingController(
+      text: thread.header.isNotEmpty ? thread.header : thread.name,
+    );
+    final phoneCtrl = TextEditingController(text: thread.phone);
+
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.person_outline_rounded, color: AppColors.accent, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Edit Contact',
+              style: TextStyle(
+                color: AppColors.ink,
+                fontWeight: FontWeight.w700,
+                fontSize: 18,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Name',
+              style: TextStyle(
+                color: AppColors.inkSoft,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: nameCtrl,
+              autofocus: true,
+              style: TextStyle(color: AppColors.ink, fontSize: 15),
+              decoration: InputDecoration(
+                hintText: 'Enter contact name',
+                hintStyle: TextStyle(color: AppColors.inkSoft.withValues(alpha: 0.5)),
+                prefixIcon: const Icon(Icons.badge_outlined, color: AppColors.accent, size: 20),
+                filled: true,
+                fillColor: AppColors.background,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AppColors.line),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AppColors.line),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                  borderSide: BorderSide(color: AppColors.accent, width: 1.8),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Phone Number',
+              style: TextStyle(
+                color: AppColors.inkSoft,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              style: TextStyle(color: AppColors.ink, fontSize: 15),
+              decoration: InputDecoration(
+                hintText: 'Enter phone number',
+                hintStyle: TextStyle(color: AppColors.inkSoft.withValues(alpha: 0.5)),
+                prefixIcon: const Icon(Icons.phone_outlined, color: AppColors.accent, size: 20),
+                filled: true,
+                fillColor: AppColors.background,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AppColors.line),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: AppColors.line),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                  borderSide: BorderSide(color: AppColors.accent, width: 1.8),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              S.of(context).cancel,
+              style: TextStyle(color: AppColors.inkSoft, fontWeight: FontWeight.w600),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            onPressed: () {
+              if (nameCtrl.text.trim().isEmpty) return;
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+
+    if (updated == true && mounted) {
+      final newName = nameCtrl.text.trim();
+      final newPhone = phoneCtrl.text.trim();
+      if (newName.isNotEmpty) {
+        setState(() {
+          thread.header = newName;
+          thread.name = newName;
+          if (newPhone.isNotEmpty) {
+            thread.phone = newPhone;
+          }
+        });
+
+        // Persist alias in SharedPreferences
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final idKey = thread.chatId ?? thread.peerId ?? thread.phone;
+          if (idKey.isNotEmpty) {
+            await prefs.setString('qapp_alias_name_$idKey', newName);
+            if (newPhone.isNotEmpty) {
+              await prefs.setString('qapp_alias_phone_$idKey', newPhone);
+            }
+          }
+          if (thread.peerId != null && thread.peerId!.isNotEmpty) {
+            await prefs.setString('qapp_alias_name_${thread.peerId}', newName);
+            if (newPhone.isNotEmpty) {
+              await prefs.setString('qapp_alias_phone_${thread.peerId}', newPhone);
+            }
+          }
+          if (thread.chatId != null && thread.chatId!.isNotEmpty) {
+            await prefs.setString('qapp_alias_name_${thread.chatId}', newName);
+            if (newPhone.isNotEmpty) {
+              await prefs.setString('qapp_alias_phone_${thread.chatId}', newPhone);
+            }
+          }
+        } catch (_) {}
+
+        ChatBook.instance.ping();
+        _toast('Contact updated successfully');
+      }
+    }
+  }
+
   Future<void> _confirmClearChat() async {
     final s = S.of(context);
     final confirm = await showDialog<bool>(
@@ -987,7 +1175,10 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(s.clearChat, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700)),
+        title: Text(
+          s.clearChat,
+          style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700),
+        ),
         content: Text(
           'Are you sure you want to clear message history in this chat?',
           style: TextStyle(color: AppColors.inkSoft),
@@ -1000,7 +1191,13 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(s.yes, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            child: Text(
+              s.yes,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),
@@ -1025,7 +1222,9 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
     final s = S.of(context);
     final buffer = StringBuffer();
     buffer.writeln('Qapp Chat Export: ${widget.thread.name}');
-    buffer.writeln('Date: ${DateTime.now().toLocal().toString().split('.')[0]}');
+    buffer.writeln(
+      'Date: ${DateTime.now().toLocal().toString().split('.')[0]}',
+    );
     buffer.writeln('----------------------------------------');
     for (final message in widget.thread.messages) {
       final who = message.mine ? s.you : widget.thread.name;
@@ -1103,7 +1302,9 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                     borderRadius: BorderRadius.circular(14),
                     onTap: () async {
                       Navigator.pop(ctx);
-                      final file = await FilePicker.pickFile(type: FileType.image);
+                      final file = await FilePicker.pickFile(
+                        type: FileType.image,
+                      );
                       if (file != null && file.path != null) {
                         setState(() {
                           thread.wallpaperPath = file.path;
@@ -1115,7 +1316,8 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                           final bytes = await File(file.path!).readAsBytes();
                           final uploaded = await ChatViewModel.instance.uploadMedia(
                             bytes: bytes,
-                            fileName: 'wp_${DateTime.now().millisecondsSinceEpoch}.jpg',
+                            fileName:
+                                'wp_${DateTime.now().millisecondsSinceEpoch}.jpg',
                             type: 'image',
                             chatId: thread.chatId,
                           );
@@ -1128,13 +1330,20 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                             }
                           }
                         } catch (_) {}
-                        await _saveWallpaperPrefs(effectivePath, null, thread.themeIndex);
+                        await _saveWallpaperPrefs(
+                          effectivePath,
+                          null,
+                          thread.themeIndex,
+                        );
                         ChatBook.instance.ping();
                         _toast('Wallpaper updated for both users!');
                       }
                     },
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
                       child: Row(
                         children: [
                           Container(
@@ -1143,7 +1352,11 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                               color: AppColors.accent.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Icon(Icons.photo_library_rounded, color: AppColors.accent, size: 22),
+                            child: const Icon(
+                              Icons.photo_library_rounded,
+                              color: AppColors.accent,
+                              size: 22,
+                            ),
                           ),
                           const SizedBox(width: 14),
                           Expanded(
@@ -1160,12 +1373,18 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                                 ),
                                 Text(
                                   'Set custom image as chat wallpaper',
-                                  style: TextStyle(color: AppColors.faint, fontSize: 12),
+                                  style: TextStyle(
+                                    color: AppColors.faint,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          Icon(Icons.chevron_right_rounded, color: AppColors.faint),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: AppColors.faint,
+                          ),
                         ],
                       ),
                     ),
@@ -1189,19 +1408,22 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                     separatorBuilder: (_, _) => const SizedBox(width: 12),
                     itemBuilder: (ctx, i) {
                       final c = solidColors[i];
-                      final isSelected = thread.wallpaperPath == null &&
-                          (thread.wallpaperColor == c.$1 || (thread.wallpaperColor == null && i == 0));
+                      final isSelected =
+                          thread.wallpaperPath == null &&
+                          (thread.wallpaperColor == c.$1 ||
+                              (thread.wallpaperColor == null && i == 0));
                       return GestureDetector(
-                        onTap: () async {
+                        onTap: () {
+                          final chosenColor = c.$1;
+                          Navigator.pop(ctx);
                           setState(() {
                             thread.wallpaperPath = null;
-                            thread.wallpaperColor = c.$1;
+                            thread.wallpaperColor = chosenColor;
                             thread.themeIndex = i;
                           });
-                          await _saveWallpaperPrefs(null, c.$1, i);
                           ChatBook.instance.ping();
-                          Navigator.pop(ctx);
                           _toast('Wallpaper color applied');
+                          _saveWallpaperPrefs(null, chosenColor, i);
                         },
                         child: Container(
                           width: 48,
@@ -1210,20 +1432,28 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                             color: Color(c.$1),
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: isSelected ? AppColors.accent : Colors.white24,
+                              color: isSelected
+                                  ? AppColors.accent
+                                  : Colors.white24,
                               width: isSelected ? 3 : 1,
                             ),
                             boxShadow: isSelected
                                 ? [
                                     BoxShadow(
-                                      color: AppColors.accent.withValues(alpha: 0.4),
+                                      color: AppColors.accent.withValues(
+                                        alpha: 0.4,
+                                      ),
                                       blurRadius: 8,
                                     ),
                                   ]
                                 : null,
                           ),
                           child: isSelected
-                              ? const Icon(Icons.check_rounded, color: AppColors.accent, size: 24)
+                              ? const Icon(
+                                  Icons.check_rounded,
+                                  color: AppColors.accent,
+                                  size: 24,
+                                )
                               : null,
                         ),
                       );
@@ -1231,21 +1461,29 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                   ),
                 ),
                 const SizedBox(height: 16),
-                if (thread.wallpaperPath != null || thread.wallpaperColor != null)
+                if (thread.wallpaperPath != null ||
+                    thread.wallpaperColor != null)
                   Center(
                     child: TextButton.icon(
-                      icon: Icon(Icons.refresh_rounded, color: AppColors.faint, size: 18),
-                      label: Text('Reset to Default Wallpaper', style: TextStyle(color: AppColors.faint)),
-                      onPressed: () async {
+                      icon: Icon(
+                        Icons.refresh_rounded,
+                        color: AppColors.faint,
+                        size: 18,
+                      ),
+                      label: Text(
+                        'Reset to Default Wallpaper',
+                        style: TextStyle(color: AppColors.faint),
+                      ),
+                      onPressed: () {
+                        Navigator.pop(ctx);
                         setState(() {
                           thread.wallpaperPath = null;
                           thread.wallpaperColor = null;
                           thread.themeIndex = 0;
                         });
-                        await _saveWallpaperPrefs(null, null, 0);
                         ChatBook.instance.ping();
-                        Navigator.pop(ctx);
                         _toast('Wallpaper reset to default');
+                        _saveWallpaperPrefs(null, null, 0);
                       },
                     ),
                   ),
@@ -1257,10 +1495,15 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
     );
   }
 
-  Future<void> _saveWallpaperPrefs(String? path, int? color, int themeIdx) async {
+  Future<void> _saveWallpaperPrefs(
+    String? path,
+    int? color,
+    int themeIdx,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final idKey = widget.thread.chatId ?? widget.thread.peerId ?? widget.thread.phone;
+      final idKey =
+          widget.thread.chatId ?? widget.thread.peerId ?? widget.thread.phone;
       if (idKey.isNotEmpty) {
         if (path != null) {
           await prefs.setString('qapp_wallpaper_path_$idKey', path);
@@ -1286,161 +1529,11 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
   }
 
   void _showBlockReportDialog(ChatThread thread) {
-    String category = 'spam';
-    final descCtrl = TextEditingController();
-    bool alsoReport = true;
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Block & Report ${thread.name}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Reason:',
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      ChoiceChip(
-                        label: const Text('Spam'),
-                        selected: category == 'spam',
-                        onSelected: (val) =>
-                            setModalState(() => category = 'spam'),
-                      ),
-                      ChoiceChip(
-                        label: const Text('Harassment'),
-                        selected: category == 'harassment',
-                        onSelected: (val) =>
-                            setModalState(() => category = 'harassment'),
-                      ),
-                      ChoiceChip(
-                        label: const Text('Inappropriate'),
-                        selected: category == 'inappropriate',
-                        onSelected: (val) =>
-                            setModalState(() => category = 'inappropriate'),
-                      ),
-                      ChoiceChip(
-                        label: const Text('Other'),
-                        selected: category == 'other',
-                        onSelected: (val) =>
-                            setModalState(() => category = 'other'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: descCtrl,
-                    decoration: InputDecoration(
-                      hintText: 'Problem description (Optional)...',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                    ),
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Checkbox(
-                        value: alsoReport,
-                        onChanged: (val) =>
-                            setModalState(() => alsoReport = val ?? true),
-                      ),
-                      const Expanded(
-                        child: Text(
-                          'Report this contact to Qapp Admin',
-                          style: TextStyle(fontSize: 13, color: Colors.black87),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        onPressed: () async {
-                          Navigator.of(ctx).pop();
-                          final peerId = thread.peerId;
-                          if (peerId != null) {
-                            if (alsoReport) {
-                              await ChatViewModel.instance.reportAndBlockUser(
-                                targetUserId: peerId,
-                                category: category,
-                                reason: 'Reported: $category',
-                                description: descCtrl.text.trim().isNotEmpty
-                                    ? descCtrl.text.trim()
-                                    : null,
-                                block: true,
-                              );
-                            } else {
-                              await ChatViewModel.instance.blockUser(peerId);
-                            }
-                          }
-                          setState(() => thread.blocked = true);
-                          ChatBook.instance.ping();
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  '${thread.name} has been blocked and reported',
-                                ),
-                              ),
-                            );
-                          }
-                        },
-                        child: const Text('Block & Report'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          },
-        );
+    showBlockReportDialog(
+      context,
+      thread,
+      onBlocked: () {
+        if (mounted) setState(() => thread.blocked = true);
       },
     );
   }
@@ -1468,24 +1561,6 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
     setState(() => message.starred = !message.starred);
     try {
       final prefs = await SharedPreferences.getInstance();
-      final idKey = thread.chatId ?? thread.peerId ?? thread.phone;
-      if (idKey.isNotEmpty) {
-        final savedWp = prefs.getString('qapp_wallpaper_path_$idKey');
-        final savedColor = prefs.getInt('qapp_wallpaper_color_$idKey');
-        final savedTheme = prefs.getInt('qapp_theme_idx_$idKey');
-        if (savedWp != null && savedWp.isNotEmpty) {
-          if (savedWp.startsWith('http') || File(savedWp).existsSync()) {
-            thread.wallpaperPath = savedWp;
-          }
-        }
-        if (savedColor != null) {
-          thread.wallpaperColor = savedColor;
-        }
-        if (savedTheme != null) {
-          thread.themeIndex = savedTheme;
-        }
-      }
-
       final starredKeys = prefs.getStringList('qapp_starred_messages') ?? [];
       final key =
           message.id ??
@@ -1601,12 +1676,24 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                 ),
               if (!message.deleted)
                 ListTile(
-                  leading: Icon(Icons.delete_outline_rounded, color: AppColors.ink),
-                  title: Text('Delete for Me', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700)),
+                  leading: Icon(
+                    Icons.delete_outline_rounded,
+                    color: AppColors.ink,
+                  ),
+                  title: Text(
+                    'Delete for Me',
+                    style: TextStyle(
+                      color: AppColors.ink,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                   onTap: () {
                     Navigator.pop(sheet);
                     if (message.id != null) {
-                      ChatViewModel.instance.deleteMessage(message.id!, deleteForEveryone: false);
+                      ChatViewModel.instance.deleteMessage(
+                        message.id!,
+                        deleteForEveryone: false,
+                      );
                     }
                     setState(() {
                       widget.thread.messages.remove(message);
@@ -1616,12 +1703,24 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                 ),
               if (message.mine && !message.deleted)
                 ListTile(
-                  leading: const Icon(Icons.delete_forever_rounded, color: Colors.redAccent),
-                  title: const Text('Delete for Everyone', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700)),
+                  leading: const Icon(
+                    Icons.delete_forever_rounded,
+                    color: Colors.redAccent,
+                  ),
+                  title: const Text(
+                    'Delete for Everyone',
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                   onTap: () {
                     Navigator.pop(sheet);
                     if (message.id != null) {
-                      ChatViewModel.instance.deleteMessage(message.id!, deleteForEveryone: true);
+                      ChatViewModel.instance.deleteMessage(
+                        message.id!,
+                        deleteForEveryone: true,
+                      );
                     }
                     setState(() {
                       message.deleted = true;
@@ -1645,7 +1744,9 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
     final existingPeerIds = targets.map((t) => t.peerId).toSet();
     final extraPeers = ChatBook.instance.peers.where((p) {
       final pid = p['id']?.toString();
-      return pid != null && pid != widget.thread.peerId && !existingPeerIds.contains(pid);
+      return pid != null &&
+          pid != widget.thread.peerId &&
+          !existingPeerIds.contains(pid);
     }).toList();
 
     showModalBottomSheet<void>(
@@ -1665,7 +1766,11 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                   child: Row(
                     children: [
-                      const Icon(Icons.forward_rounded, color: AppColors.accent, size: 22),
+                      const Icon(
+                        Icons.forward_rounded,
+                        color: AppColors.accent,
+                        size: 22,
+                      ),
                       const SizedBox(width: 8),
                       Text(
                         'Forward to...',
@@ -1711,7 +1816,9 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                             name: p['name']?.toString() ?? 'User',
                             size: 42,
                             colorIndex: 2,
-                            photo: p['profileImageUrl']?.toString() ?? p['photoUrl']?.toString(),
+                            photo:
+                                p['profileImageUrl']?.toString() ??
+                                p['photoUrl']?.toString(),
                           ),
                           title: Text(
                             p['name']?.toString() ?? 'User',
@@ -1727,7 +1834,8 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
                           onTap: () async {
                             Navigator.pop(sheet);
                             final peerId = p['id'].toString();
-                            final direct = await ChatViewModel.instance.openDirectChat(peerId);
+                            final direct = await ChatViewModel.instance
+                                .openDirectChat(peerId);
                             if (direct != null) {
                               final newT = ChatThread(
                                 chatId: direct['id']?.toString(),
@@ -1757,10 +1865,15 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
     );
   }
 
-  Future<void> _executeForward(ChatMessage message, ChatThread targetThread) async {
+  Future<void> _executeForward(
+    ChatMessage message,
+    ChatThread targetThread,
+  ) async {
     String? chatId = targetThread.chatId;
     if (chatId == null && targetThread.peerId != null) {
-      final direct = await ChatViewModel.instance.openDirectChat(targetThread.peerId!);
+      final direct = await ChatViewModel.instance.openDirectChat(
+        targetThread.peerId!,
+      );
       if (direct != null && direct['id'] != null) {
         chatId = direct['id'].toString();
         targetThread.chatId = chatId;
@@ -1772,7 +1885,8 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
     final fileInfo = message.fileUrl != null
         ? {
             'url': message.fileUrl,
-            'name': message.asset ??
+            'name':
+                message.asset ??
                 (message.path != null
                     ? message.path!.split(Platform.pathSeparator).last
                     : 'file'),
@@ -1803,7 +1917,9 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
       forwarded: true,
     );
     targetThread.messages.add(copy);
-    targetThread.preview = message.text.isNotEmpty ? message.text : '[Forwarded ${message.kind.name}]';
+    targetThread.preview = message.text.isNotEmpty
+        ? message.text
+        : '[Forwarded ${message.kind.name}]';
     targetThread.time = formatMessageTime(now);
     ChatBook.instance.ping();
     _toast('Message forwarded to ${targetThread.name}');
@@ -2550,160 +2666,211 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
     Size size,
     EdgeInsets padding,
     EdgeInsets insets,
+    Offset? fabOffset,
   ) {
     const fabSize = 54.0;
     final minX = 12.0;
     final maxX = (size.width - fabSize - 12.0).clamp(minX, double.infinity);
     final minY = padding.top + 50.0;
-    final maxY = (size.height - insets.bottom - fabSize - 80.0).clamp(minY, double.infinity);
+    final maxY = (size.height - insets.bottom - fabSize - 80.0).clamp(
+      minY,
+      double.infinity,
+    );
 
-    if (_voiceFabOffset == null) {
+    if (fabOffset == null) {
       return Offset(maxX - 4.0, maxY - 12.0);
     }
 
-    final cx = _voiceFabOffset!.dx.clamp(minX, maxX);
-    final cy = _voiceFabOffset!.dy.clamp(minY, maxY);
+    final cx = fabOffset.dx.clamp(minX, maxX);
+    final cy = fabOffset.dy.clamp(minY, maxY);
     return Offset(cx, cy);
   }
 
   Widget _buildDraggableVoiceFab(BuildContext context) {
+    if (widget.thread.blocked || widget.thread.blockedByPeer) {
+      return const SizedBox.shrink();
+    }
     final media = MediaQuery.of(context);
-    final currentOffset = _getClampedFabOffset(
-      media.size,
-      media.padding,
-      media.viewInsets,
-    );
 
-    return Positioned(
-      left: currentOffset.dx,
-      top: currentOffset.dy,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanUpdate: (details) {
-          setState(() {
-            _voiceFabOffset = Offset(
-              currentOffset.dx + details.delta.dx,
-              currentOffset.dy + details.delta.dy,
-            );
-          });
-        },
-        onTap: _toggleVoiceTyping,
-        child: AnimatedBuilder(
-          animation: _voiceBlinkCtrl,
-          builder: (context, child) {
-            final isListening = _isVoiceTyping;
-            final pulse = isListening ? _voiceBlinkCtrl.value : 0.0;
-            const glowColor = Color(0xFFE36B6B);
+    return ValueListenableBuilder<Offset?>(
+      valueListenable: _voiceFabNotifier,
+      builder: (context, fabOffset, _) {
+        final currentOffset = _getClampedFabOffset(
+          media.size,
+          media.padding,
+          media.viewInsets,
+          fabOffset,
+        );
 
-            return Material(
-              type: MaterialType.transparency,
-              child: Stack(
-                alignment: Alignment.center,
-                clipBehavior: Clip.none,
-                children: [
-                  // Outer pulsating glow circle when listening
-                  if (isListening)
-                    Container(
-                      width: 58 + (8 * pulse),
-                      height: 58 + (8 * pulse),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: glowColor.withValues(alpha: 0.22 * (1.0 - pulse * 0.4)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: glowColor.withValues(alpha: 0.38 * (1.0 - pulse * 0.3)),
-                            blurRadius: 14 + (6 * pulse),
-                            spreadRadius: 2 + (4 * pulse),
+        return Positioned(
+          left: currentOffset.dx,
+          top: currentOffset.dy,
+          child: RepaintBoundary(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanStart: (details) {
+                _fabDragPos = _getClampedFabOffset(
+                  media.size,
+                  media.padding,
+                  media.viewInsets,
+                  _voiceFabNotifier.value,
+                );
+              },
+              onPanUpdate: (details) {
+                final cur =
+                    _fabDragPos ??
+                    _getClampedFabOffset(
+                      media.size,
+                      media.padding,
+                      media.viewInsets,
+                      _voiceFabNotifier.value,
+                    );
+                final updated = _getClampedFabOffset(
+                  media.size,
+                  media.padding,
+                  media.viewInsets,
+                  cur + details.delta,
+                );
+                _fabDragPos = updated;
+                _voiceFabNotifier.value = updated;
+              },
+              onPanEnd: (_) {
+                _fabDragPos = null;
+              },
+              onTap: _toggleVoiceTyping,
+              child: AnimatedBuilder(
+                animation: _voiceBlinkCtrl,
+                builder: (context, child) {
+                  final isListening = _isVoiceTyping;
+                  final pulse = isListening ? _voiceBlinkCtrl.value : 0.0;
+                  const glowColor = Color(0xFFE36B6B);
+
+                  return Material(
+                    type: MaterialType.transparency,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      clipBehavior: Clip.none,
+                      children: [
+                        // Outer pulsating glow circle when listening
+                        if (isListening)
+                          Container(
+                            width: 58 + (8 * pulse),
+                            height: 58 + (8 * pulse),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: glowColor.withValues(
+                                alpha: 0.22 * (1.0 - pulse * 0.4),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: glowColor.withValues(
+                                    alpha: 0.38 * (1.0 - pulse * 0.3),
+                                  ),
+                                  blurRadius: 14 + (6 * pulse),
+                                  spreadRadius: 2 + (4 * pulse),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
-                    ),
 
-                  // Draggable floating circular button
-                  Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: isListening
-                          ? const LinearGradient(
-                              colors: [Color(0xFFE36B6B), Color(0xFFD32F2F)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            )
-                          : AppColors.buttonGradient,
-                      boxShadow: [
-                        BoxShadow(
-                          color: isListening
-                              ? glowColor.withValues(alpha: 0.5)
-                              : Colors.black.withValues(alpha: 0.28),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
+                        // Draggable floating circular button
+                        Container(
+                          width: 52,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: isListening
+                                ? const LinearGradient(
+                                    colors: [
+                                      Color(0xFFE36B6B),
+                                      Color(0xFFD32F2F),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  )
+                                : AppColors.buttonGradient,
+                            boxShadow: [
+                              BoxShadow(
+                                color: isListening
+                                    ? glowColor.withValues(alpha: 0.5)
+                                    : Colors.black.withValues(alpha: 0.28),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                            border: Border.all(
+                              color: isListening
+                                  ? Colors.white.withValues(alpha: 0.85)
+                                  : AppColors.ink.withValues(alpha: 0.14),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Center(
+                            child: Opacity(
+                              opacity: isListening
+                                  ? (0.35 + 0.65 * pulse)
+                                  : 1.0,
+                              child: Icon(
+                                isListening ? Icons.mic : Icons.mic_rounded,
+                                color: isListening
+                                    ? Colors.white
+                                    : AppColors.ink,
+                                size: 26,
+                              ),
+                            ),
+                          ),
                         ),
+
+                        // Small listening label below the floating button
+                        if (isListening)
+                          Positioned(
+                            bottom: -22,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.8),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: glowColor.withValues(alpha: 0.6),
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Color(0xFFE36B6B),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Text(
+                                    'Listening...',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                       ],
-                      border: Border.all(
-                        color: isListening
-                            ? Colors.white.withValues(alpha: 0.85)
-                            : AppColors.ink.withValues(alpha: 0.14),
-                        width: 1.5,
-                      ),
                     ),
-                    child: Center(
-                      child: Opacity(
-                        opacity: isListening ? (0.35 + 0.65 * pulse) : 1.0,
-                        child: Icon(
-                          isListening ? Icons.mic : Icons.mic_rounded,
-                          color: isListening ? Colors.white : AppColors.ink,
-                          size: 26,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Small listening label below the floating button
-                  if (isListening)
-                    Positioned(
-                      bottom: -22,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.8),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: glowColor.withValues(alpha: 0.6),
-                            width: 0.8,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Color(0xFFE36B6B),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Text(
-                              'Listening...',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
+                  );
+                },
               ),
-            );
-          },
-        ),
-      ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -2962,891 +3129,917 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
         children: [
           QBackground(
             child: Column(
-          children: [
-            SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: () {
-                        if (_finding) {
-                          setState(() {
-                            _finding = false;
-                            _find.clear();
-                          });
-                          return;
-                        }
-                        Navigator.of(context).pop();
-                      },
-                      icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                    ),
-                    if (_finding)
-                      Expanded(
-                        child: TextField(
-                          controller: _find,
-                          autofocus: true,
-                          onChanged: (_) => setState(() {}),
-                          style: TextStyle(color: AppColors.ink),
-                          cursorColor: AppColors.accent,
-                          decoration: InputDecoration(
-                            hintText: s.search,
-                            hintStyle: TextStyle(color: AppColors.faint),
-                            border: InputBorder.none,
-                          ),
+              children: [
+                SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          onPressed: () {
+                            if (_finding) {
+                              setState(() {
+                                _finding = false;
+                                _find.clear();
+                              });
+                              return;
+                            }
+                            Navigator.of(context).pop();
+                          },
+                          icon: const Icon(Icons.arrow_back_ios_new_rounded),
                         ),
-                      )
-                    else ...[
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: _openContact,
-                          behavior: HitTestBehavior.opaque,
-                          child: Row(
-                            children: [
-                              QAvatar(
-                                name: thread.name,
-                                size: 40,
-                                colorIndex: thread.colorIndex,
-                                photo: thread.photo,
-                                bytes: thread.photoBytes,
-                                online: thread.online,
+                        if (_finding)
+                          Expanded(
+                            child: TextField(
+                              controller: _find,
+                              autofocus: true,
+                              onChanged: (_) => setState(() {}),
+                              style: TextStyle(color: AppColors.ink),
+                              cursorColor: AppColors.accent,
+                              decoration: InputDecoration(
+                                hintText: s.search,
+                                hintStyle: TextStyle(color: AppColors.faint),
+                                border: InputBorder.none,
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      thread.header,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    _peerTyping
-                                        ? Text(
-                                            (thread.isGroup &&
-                                                    _peerTypingName != null &&
-                                                    _peerTypingName!.isNotEmpty)
-                                                ? '$_peerTypingName is typing...'
-                                                : 'typing...',
-                                            style: const TextStyle(
-                                              color: AppColors.accent,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w700,
-                                              fontStyle: FontStyle.italic,
-                                            ),
-                                          )
-                                        : thread.online
-                                        ? Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const PulsingOnlineDot(
-                                                size: 7,
-                                                showRing: true,
-                                              ),
-                                              const SizedBox(width: 5),
-                                              Text(
-                                                s.online,
-                                                style: TextStyle(
+                            ),
+                          )
+                        else ...[
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: _openContact,
+                              behavior: HitTestBehavior.opaque,
+                              child: Row(
+                                children: [
+                                  QAvatar(
+                                    name: thread.name,
+                                    size: 40,
+                                    colorIndex: thread.colorIndex,
+                                    photo: thread.photo,
+                                    bytes: thread.photoBytes,
+                                    online: thread.online,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          thread.header,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        _peerTyping
+                                            ? Text(
+                                                (thread.isGroup &&
+                                                        _peerTypingName !=
+                                                            null &&
+                                                        _peerTypingName!
+                                                            .isNotEmpty)
+                                                    ? '$_peerTypingName is typing...'
+                                                    : 'typing...',
+                                                style: const TextStyle(
                                                   color: AppColors.accent,
                                                   fontSize: 12,
                                                   fontWeight: FontWeight.w700,
+                                                  fontStyle: FontStyle.italic,
+                                                ),
+                                              )
+                                            : thread.online
+                                            ? Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const PulsingOnlineDot(
+                                                    size: 7,
+                                                    showRing: true,
+                                                  ),
+                                                  const SizedBox(width: 5),
+                                                  Text(
+                                                    s.online,
+                                                    style: TextStyle(
+                                                      color: AppColors.accent,
+                                                      fontSize: 12,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ],
+                                              )
+                                            : Text(
+                                                thread.lastSeen != null
+                                                    ? 'Last seen ${formatLastSeen(thread.lastSeen)}'
+                                                    : (thread.time.isNotEmpty
+                                                          ? thread.time
+                                                          : ''),
+                                                softWrap: true,
+                                                style: TextStyle(
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.7),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
                                                 ),
                                               ),
-                                            ],
-                                          )
-                                        : Text(
-                                            thread.lastSeen != null
-                                                ? 'Last seen ${formatLastSeen(thread.lastSeen)}'
-                                                : (thread.time.isNotEmpty
-                                                      ? thread.time
-                                                      : ''),
-                                            softWrap: true,
-                                            style: TextStyle(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.7,
-                                              ),
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                  ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                qRoute(
+                                  VoiceCallScreen(
+                                    name: thread.header,
+                                    colorIndex: thread.colorIndex,
+                                    photo: thread.photo,
+                                    status: s.callStatus(thread.header),
+                                    recipientId: thread.peerId,
+                                    chatId: thread.chatId,
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.call_rounded),
+                          ),
+                          PopupMenuButton<String>(
+                            color: AppColors.card,
+                            icon: const Icon(Icons.more_vert_rounded),
+                            onSelected: (value) => _headerAction(value),
+                            itemBuilder: (context) => [
+                              if (!thread.isGroup)
+                                PopupMenuItem(
+                                  value: 'edit_contact',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.edit_outlined, size: 18, color: AppColors.ink),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Edit Contact',
+                                        style: TextStyle(color: AppColors.ink),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              PopupMenuItem(
+                                value: 'pin',
+                                child: Text(
+                                  thread.pinned ? s.unpin : s.pinned,
+                                  style: TextStyle(color: AppColors.ink),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'mute',
+                                child: Text(
+                                  thread.muted ? s.unmute : s.muteNotif,
+                                  style: TextStyle(color: AppColors.ink),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'clear',
+                                child: Text(
+                                  s.clearChat,
+                                  style: TextStyle(color: AppColors.ink),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'block',
+                                child: Text(
+                                  thread.blocked ? s.unblock : s.block,
+                                  style: TextStyle(color: AppColors.ink),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'theme',
+                                child: Text(
+                                  'Chat Theme & Wallpaper',
+                                  style: TextStyle(color: AppColors.ink),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'export',
+                                child: Text(
+                                  'Export Chat',
+                                  style: TextStyle(color: AppColors.ink),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Text(
+                                  s.deleteChat,
+                                  style: TextStyle(color: AppColors.ink),
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            qRoute(
-                              VoiceCallScreen(
-                                name: thread.header,
-                                colorIndex: thread.colorIndex,
-                                photo: thread.photo,
-                                status: s.callStatus(thread.header),
-                                recipientId: thread.peerId,
-                                chatId: thread.chatId,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.call_rounded),
-                      ),
-                      PopupMenuButton<String>(
-                        color: AppColors.card,
-                        icon: const Icon(Icons.more_vert_rounded),
-                        onSelected: (value) => _headerAction(value),
-                        itemBuilder: (context) => [
-                          PopupMenuItem(
-                            value: 'pin',
-                            child: Text(
-                              thread.pinned ? s.unpin : s.pinned,
-                              style: TextStyle(color: AppColors.ink),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'mute',
-                            child: Text(
-                              thread.muted ? s.unmute : s.muteNotif,
-                              style: TextStyle(color: AppColors.ink),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'clear',
-                            child: Text(
-                              s.clearChat,
-                              style: TextStyle(color: AppColors.ink),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'block',
-                            child: Text(
-                              thread.blocked ? s.unblock : s.block,
-                              style: TextStyle(color: AppColors.ink),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'theme',
-                            child: Text(
-                              'Chat Theme & Wallpaper',
-                              style: TextStyle(color: AppColors.ink),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'export',
-                            child: Text(
-                              'Export Chat',
-                              style: TextStyle(color: AppColors.ink),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: Text(
-                              s.deleteChat,
-                              style: TextStyle(color: AppColors.ink),
-                            ),
+                          IconButton(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                qRoute(
+                                  VideoCallScreen(
+                                    name: thread.header,
+                                    colorIndex: thread.colorIndex,
+                                    photo: thread.photo,
+                                    status: s.callStatus(thread.header),
+                                    recipientId: thread.peerId,
+                                    chatId: thread.chatId,
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.videocam_rounded),
                           ),
                         ],
-                      ),
-                      IconButton(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            qRoute(
-                              VideoCallScreen(
-                                name: thread.header,
-                                colorIndex: thread.colorIndex,
-                                photo: thread.photo,
-                                status: s.callStatus(thread.header),
-                                recipientId: thread.peerId,
-                                chatId: thread.chatId,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.videocam_rounded),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            _activeVoicePlaybackBar(),
-            Expanded(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (thread.wallpaperPath != null && thread.wallpaperPath!.isNotEmpty) ...[
-                    if (thread.wallpaperPath!.startsWith('http://') || thread.wallpaperPath!.startsWith('https://'))
-                      Positioned.fill(
-                        child: Image.network(
-                          thread.wallpaperPath!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (ctx, err, stack) => const SizedBox(),
-                        ),
-                      )
-                    else if (File(thread.wallpaperPath!).existsSync())
-                      Positioned.fill(
-                        child: Image.file(
-                          File(thread.wallpaperPath!),
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                  ] else if (thread.wallpaperColor != null)
-                    Positioned.fill(
-                      child: Container(color: Color(thread.wallpaperColor!)),
+                      ],
                     ),
-                  Column(
+                  ),
+                ),
+                _activeVoicePlaybackBar(),
+                Expanded(
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(
-                              Icons.lock_rounded,
-                              size: 13,
-                              color: AppColors.accent,
-                            ),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                s.encrypted,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: AppColors.inkSoft,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: ListView.builder(
-                          controller: _scroll,
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                          keyboardDismissBehavior:
-                              ScrollViewKeyboardDismissBehavior.onDrag,
-                          itemCount:
-                              shown.length +
-                              (_peerTyping ? 1 : 0) +
-                              (thread.blocked || thread.blockedByPeer ? 1 : 0),
-                          itemBuilder: (context, index) {
-                            if ((thread.blocked || thread.blockedByPeer) &&
-                                index == shown.length + (_peerTyping ? 1 : 0)) {
-                              return thread.blocked
-                                  ? _blockedBannerPill(thread)
-                                  : _blockedByPeerBannerPill();
-                            }
-                            if (index == shown.length) {
-                              return _TypingIndicatorBubble(
-                                userName: thread.isGroup
-                                    ? _peerTypingName
-                                    : null,
+                      if (thread.wallpaperPath != null &&
+                          thread.wallpaperPath!.isNotEmpty) ...[
+                        Builder(
+                          builder: (ctx) {
+                            final wp = thread.wallpaperPath!.trim();
+                            final isLocal =
+                                !wp.startsWith('http') &&
+                                !wp.startsWith('/') &&
+                                !wp.startsWith('uploads/') &&
+                                File(wp).existsSync();
+                            if (isLocal) {
+                              return Positioned.fill(
+                                child: Image.file(File(wp), fit: BoxFit.cover),
                               );
                             }
-                            final message = shown[index];
-                            final showDate =
-                                index == 0 && message.createdAt != null ||
-                                (index > 0 &&
-                                    message.createdAt != null &&
-                                    shown[index - 1].createdAt != null &&
-                                    !isSameDay(
-                                      message.createdAt!,
-                                      shown[index - 1].createdAt!,
-                                    ));
-
-                            final dateStr =
-                                showDate && message.createdAt != null
-                                ? formatDateDivider(message.createdAt!)
-                                : null;
-
-                            return Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (dateStr != null) _dateBadge(dateStr),
-                                _Bubble(
-                                  message: message,
-                                  isGroup: thread.isGroup,
-                                  color:
-                                      AppColors.chatThemes[thread.themeIndex %
-                                          AppColors.chatThemes.length],
-                                  onMenu: () => _messageMenu(message),
-                                  onSwipeReply: () => _onSlideReply(message),
+                            final resolvedUrl = resolveMediaUrl(wp);
+                            if (resolvedUrl.isNotEmpty) {
+                              return Positioned.fill(
+                                child: Image.network(
+                                  resolvedUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, err, stack) =>
+                                      const SizedBox(),
                                 ),
-                              ],
-                            );
+                              );
+                            }
+                            return const SizedBox.shrink();
                           },
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            if (thread.blocked)
-              Container(
-                width: double.infinity,
-                margin: EdgeInsets.fromLTRB(
-                  16,
-                  6,
-                  16,
-                  12 + MediaQuery.paddingOf(context).bottom,
-                ),
-                padding: const EdgeInsets.symmetric(
-                  vertical: 14,
-                  horizontal: 16,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.card,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: AppColors.ink.withValues(alpha: 0.08),
-                  ),
-                ),
-                child: InkWell(
-                  onTap: () => _confirmUnblock(thread),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.block_rounded,
-                        size: 16,
-                        color: Colors.redAccent,
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        'You blocked this contact. Tap to unblock.',
-                        style: TextStyle(
-                          color: AppColors.accent,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                      ] else if (thread.wallpaperColor != null)
+                        Positioned.fill(
+                          child: Container(
+                            color: Color(thread.wallpaperColor!),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else if (thread.blockedByPeer)
-              Container(
-                width: double.infinity,
-                margin: EdgeInsets.fromLTRB(
-                  16,
-                  6,
-                  16,
-                  12 + MediaQuery.paddingOf(context).bottom,
-                ),
-                padding: const EdgeInsets.symmetric(
-                  vertical: 14,
-                  horizontal: 16,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: Colors.redAccent.withValues(alpha: 0.35),
-                  ),
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.block_rounded,
-                      size: 16,
-                      color: Colors.redAccent,
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'You have been blocked by this user.',
-                      style: TextStyle(
-                        color: Colors.redAccent,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  12,
-                  4,
-                  12,
-                  12 + MediaQuery.paddingOf(context).bottom,
-                ),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: AppColors.card,
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(
-                      color: AppColors.ink.withValues(alpha: 0.06),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.28),
-                        blurRadius: 16,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_reply != null)
+                      Column(
+                        children: [
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 6, 8, 2),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 3,
-                                  height: 36,
-                                  color: AppColors.accent,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        _reply!.mine
-                                            ? s.you
-                                            : widget.thread.name,
-                                        style: TextStyle(
-                                          color: AppColors.accent,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 1),
-                                      Text(
-                                        _reply!.deleted
-                                            ? s.deletedMsg
-                                            : _reply!.text,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: AppColors.inkSoft,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  onPressed: () =>
-                                      setState(() => _reply = null),
-                                  icon: const Icon(
-                                    Icons.close_rounded,
-                                    size: 18,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        if (_pending.isNotEmpty)
-                          SizedBox(
-                            height: 78,
-                            child: ListView.separated(
-                              scrollDirection: Axis.horizontal,
-                              padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
-                              itemCount: _pending.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(width: 8),
-                              itemBuilder: (context, index) {
-                                final item = _pending[index];
-                                return Stack(
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: SizedBox(
-                                        width: 68,
-                                        height: 68,
-                                        child:
-                                            (item.kind == ChatKind.image &&
-                                                item.bytes != null)
-                                            ? Image.memory(
-                                                item.bytes!,
-                                                fit: BoxFit.cover,
-                                                cacheWidth: 200,
-                                                filterQuality:
-                                                    FilterQuality.low,
-                                              )
-                                            : ColoredBox(
-                                                color: const Color(0xFF132A32),
-                                                child: Column(
-                                                  mainAxisAlignment:
-                                                      MainAxisAlignment.center,
-                                                  children: [
-                                                    Icon(
-                                                      item.kind == ChatKind.pdf
-                                                          ? Icons
-                                                                .picture_as_pdf_rounded
-                                                          : (item.kind ==
-                                                                    ChatKind
-                                                                        .video
-                                                                ? Icons
-                                                                      .videocam_rounded
-                                                                : (item.kind ==
-                                                                          ChatKind
-                                                                              .audio
-                                                                      ? Icons
-                                                                            .mic_rounded
-                                                                      : (item.kind ==
-                                                                                ChatKind.contact
-                                                                            ? Icons.person_rounded
-                                                                            : Icons.description_rounded))),
-                                                      color:
-                                                          item.kind ==
-                                                              ChatKind.pdf
-                                                          ? const Color(
-                                                              0xFFFF5252,
-                                                            )
-                                                          : AppColors.accent,
-                                                      size: 28,
-                                                    ),
-                                                    const SizedBox(height: 2),
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 4,
-                                                          ),
-                                                      child: Text(
-                                                        item.name,
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                        style: const TextStyle(
-                                                          color: Colors.white70,
-                                                          fontSize: 10,
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      top: -4,
-                                      right: -4,
-                                      child: GestureDetector(
-                                        onTap: () => setState(
-                                          () => _pending.removeAt(index),
-                                        ),
-                                        child: CircleAvatar(
-                                          radius: 10,
-                                          backgroundColor: Colors.black87,
-                                          child: Icon(
-                                            Icons.close_rounded,
-                                            size: 14,
-                                            color: AppColors.ink,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
-                        if (_pendingVoicePath != null)
-                          Container(
-                            margin: const EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 4,
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.background,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              children: [
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: Colors.redAccent,
-                                  ),
-                                  tooltip: 'Discard',
-                                  onPressed: _discardPendingVoice,
-                                ),
-                                AnimatedBuilder(
-                                  animation: ChatAudioService.instance,
-                                  builder: (context, _) {
-                                    final audio = ChatAudioService.instance;
-                                    final isPlayingThis =
-                                        audio.isPlaying &&
-                                        audio.currentPath == _pendingVoicePath;
-                                    return IconButton(
-                                      icon: Icon(
-                                        isPlayingThis
-                                            ? Icons.pause_circle_filled_rounded
-                                            : Icons.play_circle_fill_rounded,
-                                        color: AppColors.accent,
-                                        size: 32,
-                                      ),
-                                      onPressed: () {
-                                        if (isPlayingThis) {
-                                          audio.pause();
-                                        } else {
-                                          audio.play(_pendingVoicePath!);
-                                        }
-                                      },
-                                    );
-                                  },
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.graphic_eq_rounded,
-                                        color: AppColors.accent,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        _clock(_pendingVoiceSeconds),
-                                        style: TextStyle(
-                                          color: AppColors.ink,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        '(Voice note)',
-                                        style: TextStyle(
-                                          color: AppColors.inkSoft,
-                                          fontSize: 12,
-                                          fontStyle: FontStyle.italic,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                GestureDetector(
-                                  onTap: _sendPendingVoice,
-                                  child: Container(
-                                    width: 38,
-                                    height: 38,
-                                    decoration: const BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      gradient: AppColors.buttonGradient,
-                                    ),
-                                    child: Icon(
-                                      Icons.send_rounded,
-                                      color: AppColors.ink,
-                                      size: 18,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        if (widget.thread.isGroup &&
-                            widget.thread.onlyAdminsCanSend &&
-                            widget.thread.myRole != 'admin')
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(
-                                0xFF1E293B,
-                              ).withValues(alpha: 0.95),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: AppColors.ink.withValues(alpha: 0.1),
-                              ),
-                            ),
+                            padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 const Icon(
                                   Icons.lock_rounded,
-                                  color: Color(0xFF38BDF8),
-                                  size: 18,
+                                  size: 13,
+                                  color: AppColors.accent,
                                 ),
-                                const SizedBox(width: 8),
+                                const SizedBox(width: 6),
                                 Flexible(
                                   child: Text(
-                                    'Only admins can send messages to this group',
+                                    s.encrypted,
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       color: AppColors.inkSoft,
-                                      fontSize: 13.5,
+                                      fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ),
                               ],
                             ),
-                          )
-                        else
-                          Row(
-                            children: [
-                              IconButton(
-                                onPressed: _shareSheet,
-                                icon: const Icon(
-                                  Icons.add_circle_rounded,
-                                  color: AppColors.accent,
-                                ),
-                              ),
-                              if (_recording)
-                                Expanded(
-                                  child: Row(
-                                    children: [
-                                      IconButton(
-                                        onPressed: _cancelAudio,
-                                        icon: Icon(
-                                          Icons.close_rounded,
-                                          color: AppColors.inkSoft,
-                                        ),
-                                      ),
-                                      const Icon(
-                                        Icons.fiber_manual_record,
-                                        color: Color(0xFFE36B6B),
-                                        size: 14,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        _clock(_recSeconds),
-                                        style: TextStyle(
-                                          color: AppColors.ink,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              else ...[
-                                GestureDetector(
-                                  onTap: _toggleVoiceTyping,
-                                  behavior: HitTestBehavior.opaque,
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(left: 2, right: 6),
-                                    child: AnimatedBuilder(
-                                      animation: _voiceBlinkCtrl,
-                                      builder: (context, child) {
-                                        final isListening = _isVoiceTyping;
-                                        final blinkVal = isListening ? _voiceBlinkCtrl.value : 0.0;
-                                        return Opacity(
-                                          opacity: isListening ? (0.35 + 0.65 * blinkVal) : 1.0,
-                                          child: Container(
-                                            padding: const EdgeInsets.all(6),
-                                            decoration: BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              color: isListening
-                                                  ? const Color(0xFFE36B6B).withValues(alpha: 0.18)
-                                                  : AppColors.inkSoft.withValues(alpha: 0.08),
-                                            ),
-                                            child: Icon(
-                                              isListening ? Icons.mic : Icons.mic_none_rounded,
-                                              size: 19,
-                                              color: isListening
-                                                  ? const Color(0xFFE36B6B)
-                                                  : AppColors.inkSoft,
+                          ),
+                          Expanded(
+                            child: ListView.builder(
+                              controller: _scroll,
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
+                              itemCount:
+                                  shown.length +
+                                  (_peerTyping ? 1 : 0) +
+                                  (thread.blocked || thread.blockedByPeer
+                                      ? 1
+                                      : 0),
+                              itemBuilder: (context, index) {
+                                if ((thread.blocked || thread.blockedByPeer) &&
+                                    index ==
+                                        shown.length + (_peerTyping ? 1 : 0)) {
+                                  return thread.blocked
+                                      ? _blockedBannerPill(thread)
+                                      : _blockedByPeerBannerPill();
+                                }
+                                if (index == shown.length) {
+                                  return _TypingIndicatorBubble(
+                                    userName: thread.isGroup
+                                        ? _peerTypingName
+                                        : null,
+                                  );
+                                }
+                                final message = shown[index];
+                                final showDate =
+                                    index == 0 && message.createdAt != null ||
+                                    (index > 0 &&
+                                        message.createdAt != null &&
+                                        shown[index - 1].createdAt != null &&
+                                        !isSameDay(
+                                          message.createdAt!,
+                                          shown[index - 1].createdAt!,
+                                        ));
+
+                                final dateStr =
+                                    showDate && message.createdAt != null
+                                    ? formatDateDivider(message.createdAt!)
+                                    : null;
+
+                                return Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (dateStr != null) _dateBadge(dateStr),
+                                    _Bubble(
+                                      message: message,
+                                      thread: thread,
+                                      isGroup: thread.isGroup,
+                                      color:
+                                          AppColors.chatThemes[thread
+                                                  .themeIndex %
+                                              AppColors.chatThemes.length],
+                                      onMenu: () => _messageMenu(message),
+                                      onSwipeReply: () =>
+                                          _onSlideReply(message),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (thread.blocked)
+                  Container(
+                    width: double.infinity,
+                    margin: EdgeInsets.fromLTRB(
+                      16,
+                      6,
+                      16,
+                      12 + MediaQuery.paddingOf(context).bottom,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 14,
+                      horizontal: 16,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.card,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: AppColors.ink.withValues(alpha: 0.08),
+                      ),
+                    ),
+                    child: InkWell(
+                      onTap: () => _confirmUnblock(thread),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.block_rounded,
+                            size: 16,
+                            color: Colors.redAccent,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'You blocked this contact. Tap to unblock.',
+                            style: TextStyle(
+                              color: AppColors.accent,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (thread.blockedByPeer)
+                  Container(
+                    width: double.infinity,
+                    margin: EdgeInsets.fromLTRB(
+                      16,
+                      6,
+                      16,
+                      12 + MediaQuery.paddingOf(context).bottom,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 14,
+                      horizontal: 16,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: Colors.redAccent.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.block_rounded,
+                          size: 16,
+                          color: Colors.redAccent,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'You have been blocked by this user.',
+                          style: TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      12,
+                      4,
+                      12,
+                      12 + MediaQuery.paddingOf(context).bottom,
+                    ),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppColors.card,
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: AppColors.ink.withValues(alpha: 0.06),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.28),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_reply != null)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(12, 6, 8, 2),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 3,
+                                      height: 36,
+                                      color: AppColors.accent,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            _reply!.mine
+                                                ? s.you
+                                                : widget.thread.name,
+                                            style: TextStyle(
+                                              color: AppColors.accent,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
                                             ),
                                           ),
+                                          const SizedBox(height: 1),
+                                          Text(
+                                            _reply!.deleted
+                                                ? s.deletedMsg
+                                                : _reply!.text,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: AppColors.inkSoft,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () =>
+                                          setState(() => _reply = null),
+                                      icon: const Icon(
+                                        Icons.close_rounded,
+                                        size: 18,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            if (_pending.isNotEmpty)
+                              SizedBox(
+                                height: 78,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  padding: const EdgeInsets.fromLTRB(
+                                    8,
+                                    4,
+                                    8,
+                                    4,
+                                  ),
+                                  itemCount: _pending.length,
+                                  separatorBuilder: (_, _) =>
+                                      const SizedBox(width: 8),
+                                  itemBuilder: (context, index) {
+                                    final item = _pending[index];
+                                    return Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          child: SizedBox(
+                                            width: 68,
+                                            height: 68,
+                                            child:
+                                                (item.kind == ChatKind.image &&
+                                                    item.bytes != null)
+                                                ? Image.memory(
+                                                    item.bytes!,
+                                                    fit: BoxFit.cover,
+                                                    cacheWidth: 200,
+                                                    filterQuality:
+                                                        FilterQuality.low,
+                                                  )
+                                                : ColoredBox(
+                                                    color: const Color(
+                                                      0xFF132A32,
+                                                    ),
+                                                    child: Column(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .center,
+                                                      children: [
+                                                        Icon(
+                                                          item.kind ==
+                                                                  ChatKind.pdf
+                                                              ? Icons
+                                                                    .picture_as_pdf_rounded
+                                                              : (item.kind ==
+                                                                        ChatKind
+                                                                            .video
+                                                                    ? Icons
+                                                                          .videocam_rounded
+                                                                    : (item.kind ==
+                                                                              ChatKind.audio
+                                                                          ? Icons.mic_rounded
+                                                                          : (item.kind ==
+                                                                                    ChatKind.contact
+                                                                                ? Icons.person_rounded
+                                                                                : Icons.description_rounded))),
+                                                          color:
+                                                              item.kind ==
+                                                                  ChatKind.pdf
+                                                              ? const Color(
+                                                                  0xFFFF5252,
+                                                                )
+                                                              : AppColors
+                                                                    .accent,
+                                                          size: 28,
+                                                        ),
+                                                        const SizedBox(
+                                                          height: 2,
+                                                        ),
+                                                        Padding(
+                                                          padding:
+                                                              const EdgeInsets.symmetric(
+                                                                horizontal: 4,
+                                                              ),
+                                                          child: Text(
+                                                            item.name,
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style:
+                                                                const TextStyle(
+                                                                  color: Colors
+                                                                      .white70,
+                                                                  fontSize: 10,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w600,
+                                                                ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          top: -4,
+                                          right: -4,
+                                          child: GestureDetector(
+                                            onTap: () => setState(
+                                              () => _pending.removeAt(index),
+                                            ),
+                                            child: CircleAvatar(
+                                              radius: 10,
+                                              backgroundColor: Colors.black87,
+                                              child: Icon(
+                                                Icons.close_rounded,
+                                                size: 14,
+                                                color: AppColors.ink,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+                            if (_pendingVoicePath != null)
+                              Container(
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 4,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.background,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: Colors.redAccent,
+                                      ),
+                                      tooltip: 'Discard',
+                                      onPressed: _discardPendingVoice,
+                                    ),
+                                    AnimatedBuilder(
+                                      animation: ChatAudioService.instance,
+                                      builder: (context, _) {
+                                        final audio = ChatAudioService.instance;
+                                        final isPlayingThis =
+                                            audio.isPlaying &&
+                                            audio.currentPath ==
+                                                _pendingVoicePath;
+                                        return IconButton(
+                                          icon: Icon(
+                                            isPlayingThis
+                                                ? Icons
+                                                      .pause_circle_filled_rounded
+                                                : Icons
+                                                      .play_circle_fill_rounded,
+                                            color: AppColors.accent,
+                                            size: 32,
+                                          ),
+                                          onPressed: () {
+                                            if (isPlayingThis) {
+                                              audio.pause();
+                                            } else {
+                                              audio.play(_pendingVoicePath!);
+                                            }
+                                          },
                                         );
                                       },
                                     ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _controller,
-                                    focusNode: _focusNode,
-                                    onChanged: _onInputChanged,
-                                    textCapitalization:
-                                        TextCapitalization.sentences,
-                                    style: TextStyle(
-                                      color: AppColors.ink,
-                                      fontSize: 15,
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.graphic_eq_rounded,
+                                            color: AppColors.accent,
+                                            size: 20,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            _clock(_pendingVoiceSeconds),
+                                            style: TextStyle(
+                                              color: AppColors.ink,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            '(Voice note)',
+                                            style: TextStyle(
+                                              color: AppColors.inkSoft,
+                                              fontSize: 12,
+                                              fontStyle: FontStyle.italic,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                    cursorColor: AppColors.accent,
-                                    decoration: InputDecoration(
-                                      hintText: s.messageHint,
-                                      hintStyle: TextStyle(
-                                        color: AppColors.ink.withValues(
-                                          alpha: 0.42,
+                                    GestureDetector(
+                                      onTap: _sendPendingVoice,
+                                      child: Container(
+                                        width: 38,
+                                        height: 38,
+                                        decoration: const BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          gradient: AppColors.buttonGradient,
+                                        ),
+                                        child: Icon(
+                                          Icons.send_rounded,
+                                          color: AppColors.ink,
+                                          size: 18,
                                         ),
                                       ),
-                                      border: InputBorder.none,
-                                      isCollapsed: true,
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                            vertical: 12,
-                                          ),
                                     ),
-                                    onSubmitted: (_) => _send(),
-                                  ),
-                                ),
-                              ],
-                              GestureDetector(
-                                onTap: _mic,
-                                child: Icon(
-                                  _recording
-                                      ? Icons.stop_circle_rounded
-                                      : Icons.mic_none_rounded,
-                                  color: _recording
-                                      ? const Color(0xFFE36B6B)
-                                      : AppColors.inkSoft,
+                                  ],
                                 ),
                               ),
-                              const SizedBox(width: 6),
-                              GestureDetector(
-                                onTap: _recording ? _stopVoiceRecording : _send,
-                                child: Container(
-                                  width: 42,
-                                  height: 42,
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: AppColors.buttonGradient,
-                                  ),
-                                  child: Icon(
-                                    Icons.send_rounded,
-                                    color: AppColors.ink,
-                                    size: 18,
+                            if (widget.thread.isGroup &&
+                                widget.thread.onlyAdminsCanSend &&
+                                widget.thread.myRole != 'admin')
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(
+                                    0xFF1E293B,
+                                  ).withValues(alpha: 0.95),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: AppColors.ink.withValues(alpha: 0.1),
                                   ),
                                 ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(
+                                      Icons.lock_rounded,
+                                      color: Color(0xFF38BDF8),
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        'Only admins can send messages to this group',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: AppColors.inkSoft,
+                                          fontSize: 13.5,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            else
+                              Row(
+                                children: [
+                                  IconButton(
+                                    onPressed: _shareSheet,
+                                    icon: const Icon(
+                                      Icons.add_circle_rounded,
+                                      color: AppColors.accent,
+                                    ),
+                                  ),
+                                  if (_recording)
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          IconButton(
+                                            onPressed: _cancelAudio,
+                                            icon: Icon(
+                                              Icons.close_rounded,
+                                              color: AppColors.inkSoft,
+                                            ),
+                                          ),
+                                          const Icon(
+                                            Icons.fiber_manual_record,
+                                            color: Color(0xFFE36B6B),
+                                            size: 14,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            _clock(_recSeconds),
+                                            style: TextStyle(
+                                              color: AppColors.ink,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  else ...[
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _controller,
+                                        focusNode: _focusNode,
+                                        onChanged: _onInputChanged,
+                                        textCapitalization:
+                                            TextCapitalization.sentences,
+                                        style: TextStyle(
+                                          color: AppColors.ink,
+                                          fontSize: 15,
+                                        ),
+                                        cursorColor: AppColors.accent,
+                                        decoration: InputDecoration(
+                                          hintText: s.messageHint,
+                                          hintStyle: TextStyle(
+                                            color: AppColors.ink.withValues(
+                                              alpha: 0.42,
+                                            ),
+                                          ),
+                                          border: InputBorder.none,
+                                          isCollapsed: true,
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                vertical: 12,
+                                              ),
+                                        ),
+                                        onSubmitted: (_) => _send(),
+                                      ),
+                                    ),
+                                  ],
+                                  GestureDetector(
+                                    onTap: _mic,
+                                    child: Icon(
+                                      _recording
+                                          ? Icons.stop_circle_rounded
+                                          : Icons.mic_none_rounded,
+                                      color: _recording
+                                          ? const Color(0xFFE36B6B)
+                                          : AppColors.inkSoft,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  GestureDetector(
+                                    onTap: _recording
+                                        ? _stopVoiceRecording
+                                        : _send,
+                                    child: Container(
+                                      width: 42,
+                                      height: 42,
+                                      decoration: const BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        gradient: AppColors.buttonGradient,
+                                      ),
+                                      child: Icon(
+                                        Icons.send_rounded,
+                                        color: AppColors.ink,
+                                        size: 18,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                      ],
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
-          ],
-        ),
+              ],
+            ),
+          ),
+          _buildDraggableVoiceFab(context),
+        ],
       ),
-      _buildDraggableVoiceFab(context),
-    ],
-  ),
-);
+    );
   }
 
   Widget _dateBadge(String text) {
@@ -3878,6 +4071,282 @@ class _ChatOpenScreenState extends State<ChatOpenScreen>
       ),
     );
   }
+}
+
+void showBlockReportDialog(
+  BuildContext context,
+  ChatThread thread, {
+  VoidCallback? onBlocked,
+}) {
+  String selectedReason = 'Spam';
+  final commentsCtrl = TextEditingController();
+
+  showDialog<void>(
+    context: context,
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          return Dialog(
+            backgroundColor: Colors.white,
+            elevation: 12,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Top Avatar
+                    Center(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.12),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: QAvatar(
+                          name: thread.name,
+                          photo: thread.photo,
+                          size: 58,
+                          colorIndex: thread.colorIndex,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Dialog Title
+                    Text(
+                      'Report ${thread.name}?',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF212121),
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Light Divider Line
+                    Divider(
+                      color: Colors.grey.shade200,
+                      height: 1,
+                      thickness: 1,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Reason for reporting label
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Reason for reporting',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Dropdown with "Spam" and "Other"
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: Colors.grey.shade300,
+                          width: 1.1,
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: selectedReason,
+                          isExpanded: true,
+                          icon: Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            color: Colors.grey.shade700,
+                          ),
+                          dropdownColor: Colors.white,
+                          style: const TextStyle(
+                            color: Colors.black87,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'Spam',
+                              child: Text('Spam'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Other',
+                              child: Text('Other'),
+                            ),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDialogState(() => selectedReason = val);
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Additional Comments label
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Additional Comments',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Comments Input (3-4 lines)
+                    TextField(
+                      controller: commentsCtrl,
+                      maxLines: 3,
+                      style: const TextStyle(
+                        color: Colors.black87,
+                        fontSize: 14,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'He is Spamming the Timeline!',
+                        hintStyle: TextStyle(
+                          color: Colors.grey.shade400,
+                          fontSize: 13,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(
+                            color: Colors.grey.shade300,
+                            width: 1.1,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(
+                            color: Colors.grey.shade300,
+                            width: 1.1,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE65100),
+                            width: 1.4,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+
+                    // Action Buttons Row: Cancel and Submit Report
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              side: BorderSide(
+                                color: Colors.grey.shade300,
+                                width: 1.2,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(
+                                color: Colors.black87,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFE65100),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            onPressed: () async {
+                              Navigator.of(ctx).pop();
+                              final peerId = thread.peerId;
+                              if (peerId != null) {
+                                await ChatViewModel.instance.reportAndBlockUser(
+                                  targetUserId: peerId,
+                                  category: selectedReason.toLowerCase(),
+                                  reason: selectedReason,
+                                  description:
+                                      commentsCtrl.text.trim().isNotEmpty
+                                      ? commentsCtrl.text.trim()
+                                      : null,
+                                  block: true,
+                                );
+                              }
+                              thread.blocked = true;
+                              ChatBook.instance.ping();
+                              onBlocked?.call();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    '${thread.name} has been reported and blocked',
+                                  ),
+                                  backgroundColor: const Color(0xFFE65100),
+                                ),
+                              );
+                            },
+                            child: const Text(
+                              'Submit Report',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
 }
 
 Color _getSenderColor(String name) {
@@ -3935,6 +4404,7 @@ class _Bubble extends StatelessWidget {
     required this.onMenu,
     this.onSwipeReply,
     this.isGroup = false,
+    this.thread,
   });
 
   final ChatMessage message;
@@ -3942,6 +4412,7 @@ class _Bubble extends StatelessWidget {
   final VoidCallback onMenu;
   final VoidCallback? onSwipeReply;
   final bool isGroup;
+  final ChatThread? thread;
 
   @override
   Widget build(BuildContext context) {
@@ -3954,6 +4425,34 @@ class _Bubble extends StatelessWidget {
           onLongPress: onMenu,
           onTap: () {
             if (message.deleted) {
+              return;
+            }
+            final lower = message.text.toLowerCase();
+            if (lower.contains('missed video call') && thread != null) {
+              Navigator.of(context).push(
+                qRoute(
+                  VideoCallScreen(
+                    name: thread!.header,
+                    recipientId: thread!.peerId,
+                    photo: thread!.photo,
+                    chatId: thread!.chatId,
+                  ),
+                ),
+              );
+              return;
+            } else if ((lower.contains('missed voice call') ||
+                    lower.contains('missed call')) &&
+                thread != null) {
+              Navigator.of(context).push(
+                qRoute(
+                  VoiceCallScreen(
+                    name: thread!.header,
+                    recipientId: thread!.peerId,
+                    photo: thread!.photo,
+                    chatId: thread!.chatId,
+                  ),
+                ),
+              );
               return;
             }
             if (message.kind == ChatKind.contact) {
@@ -4016,7 +4515,11 @@ class _Bubble extends StatelessWidget {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.shortcut_rounded, size: 13, color: Colors.grey.shade400),
+                                Icon(
+                                  Icons.shortcut_rounded,
+                                  size: 13,
+                                  color: Colors.grey.shade400,
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   'Forwarded',
@@ -4314,7 +4817,11 @@ Widget _buildStoryReplyBubble(String text, {required bool mine}) {
               const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.history_toggle_off_rounded, size: 14, color: Color(0xFF25D366)),
+                  Icon(
+                    Icons.history_toggle_off_rounded,
+                    size: 14,
+                    color: Color(0xFF25D366),
+                  ),
                   SizedBox(width: 4),
                   Text(
                     'Status Reply',
@@ -4332,7 +4839,9 @@ Widget _buildStoryReplyBubble(String text, {required bool mine}) {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: mine ? Colors.white.withValues(alpha: 0.85) : AppColors.inkSoft,
+                  color: mine
+                      ? Colors.white.withValues(alpha: 0.85)
+                      : AppColors.inkSoft,
                   fontStyle: FontStyle.italic,
                   fontSize: 12.5,
                 ),
@@ -4387,6 +4896,57 @@ Widget _bubbleBody(ChatMessage message, {bool mine = false}) {
   // Auto-detect Story / Status reply
   if (message.text.startsWith('Story reply')) {
     return _buildStoryReplyBubble(message.text, mine: mine);
+  }
+
+  // Auto-detect Missed Call
+  final lowerText = message.text.toLowerCase();
+  if (lowerText.contains('missed voice call') ||
+      lowerText.contains('missed video call') ||
+      lowerText.contains('missed call')) {
+    final isVideo = lowerText.contains('video');
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isVideo ? Icons.videocam_off_rounded : Icons.phone_missed_rounded,
+              color: Colors.redAccent,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                isVideo ? 'Missed Video Call' : 'Missed Voice Call',
+                style: const TextStyle(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Tap to call back',
+                style: TextStyle(
+                  color: AppColors.inkSoft.withValues(alpha: 0.7),
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   switch (message.kind) {

@@ -42,7 +42,7 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
     _speechCycleTimer = Timer(const Duration(milliseconds: 1500), () {
       if (mounted) {
         setState(() {
-          _assistantPrompt = "Suniye! Main sun raha hu... Boliye:";
+          _assistantPrompt = "Suniye! Main sun rahi hu... Boliye:";
         });
       }
     });
@@ -227,7 +227,7 @@ class _AiAssistantSheetState extends State<AiAssistantSheet> {
                         style: TextStyle(
                           color: _isSuccess
                               ? const Color(0xFF1B5E20)
-                              : const Color(0xFF174EA6),
+                              : Colors.black87,
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                         ),

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:qapp/Utills/token_storage.dart';
 import 'package:qapp/Views/AuthModule/model/auth_vm.dart';
 import 'package:qapp/Views/AuthModule/welcome_screen.dart';
 import 'package:qapp/data/demo_data.dart';
@@ -162,7 +163,13 @@ class _YouHeaderState extends State<_YouHeader> {
         _photoBytes = bytes;
         _uploading = true;
       });
-      await AuthController.instance.updateUserPhoto(bytes);
+      final updated = await AuthController.instance.updateUserPhoto(bytes);
+      final userObj = updated['user'] is Map ? updated['user'] as Map : updated;
+      final url = userObj['profile_image_url']?.toString() ?? userObj['photoUrl']?.toString() ?? '';
+      if (url.isNotEmpty) {
+        await TokenStorage.instance.updatePhotoUrl(url);
+        MyProfile.photoUrl = url;
+      }
       MyProfile.photo = bytes;
       if (mounted) {
         setState(() => _uploading = false);
@@ -199,6 +206,7 @@ class _YouHeaderState extends State<_YouHeader> {
                 name: shown,
                 size: 96,
                 bytes: _photoBytes,
+                photo: MyProfile.photoUrl,
               ),
               if (_uploading)
                 Positioned.fill(
@@ -270,23 +278,24 @@ class _LogoutTileState extends State<_LogoutTile> {
 
   Future<void> _logout() async {
     if (_busy) return;
+    final s = S.of(context);
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Text(
-          'Are you sure you want to logout?',
+          s.logoutAsk,
           style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w800),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text(S.of(context).cancel, style: TextStyle(color: AppColors.inkSoft)),
+            child: Text(s.cancel, style: TextStyle(color: AppColors.inkSoft)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout', style: TextStyle(color: Color(0xFFFF8A80), fontWeight: FontWeight.w800)),
+            child: Text(s.logout, style: const TextStyle(color: Color(0xFFFF8A80), fontWeight: FontWeight.w800)),
           ),
         ],
       ),
@@ -306,10 +315,11 @@ class _LogoutTileState extends State<_LogoutTile> {
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
     return _InfoTile(
       icon: Icons.logout_rounded,
-      title: _busy ? '...' : 'Logout',
-      subtitle: 'Next time, sign in with OTP',
+      title: _busy ? '...' : s.logout,
+      subtitle: s.logoutSub,
       onTap: _busy ? null : _logout,
     );
   }

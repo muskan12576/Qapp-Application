@@ -59,6 +59,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   StreamSubscription? _declineSub;
   StreamSubscription? _endedSub;
   StreamSubscription? _busySub;
+  Timer? _ringTimeoutTimer;
 
   @override
   void initState() {
@@ -67,17 +68,35 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _activeRoomId = widget.roomId;
     _callStatus = widget.isIncoming ? "Connecting..." : "Calling...";
 
+    if (!widget.isIncoming) {
+      _playRingingTone();
+      _startRingTimeout();
+    }
+
     _listenSockets();
     _initZegoVideoCall();
+  }
+
+  void _startRingTimeout() {
+    _ringTimeoutTimer?.cancel();
+    // 8 rings * 3.0s = 24 seconds
+    _ringTimeoutTimer = Timer(const Duration(seconds: 24), () {
+      if (!mounted || _isConnected) return;
+      _stopRingingTone();
+      setState(() => _callStatus = "No Answer");
+      HapticFeedback.mediumImpact();
+      _endCall();
+    });
   }
 
   void _playRingingTone() {
     try {
       FlutterRingtonePlayer().play(
-        android: AndroidSounds.ringtone,
+        fromAsset: 'assets/sounds/telephone_ringback.wav',
         ios: IosSounds.electronic,
         looping: true,
-        volume: 0.8,
+        volume: 1.0,
+        asAlarm: true,
       );
     } catch (_) {}
   }
@@ -124,6 +143,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       if (!mounted) return;
       if (streams.isNotEmpty) {
         _stopRingingTone();
+        _ringTimeoutTimer?.cancel();
         final streamId = streams.first;
         final remoteWidget = await ZegoCallingService.instance.createRemoteVideoView(streamId);
         if (mounted) {
@@ -240,6 +260,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
 
   Future<void> _leaveAndPop() async {
     _stopRingingTone();
+    _ringTimeoutTimer?.cancel();
     _ticker?.cancel();
     if (_activeRoomId != null) {
       await ZegoCallingService.instance.leaveRoomAndDestroy(_activeRoomId!);
@@ -286,6 +307,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   @override
   void dispose() {
     _stopRingingTone();
+    _ringTimeoutTimer?.cancel();
     _ticker?.cancel();
     _remoteSub?.cancel();
     _declineSub?.cancel();

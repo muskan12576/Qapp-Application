@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
@@ -49,14 +50,16 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   bool _muted = false;
   bool _speaker = false;
   bool _isConnected = false;
+  String? _callStatus;
   String? _activeCallId;
   String? _activeRoomId;
-  String? _callStatus;
-
+  Timer? _ringTimeoutTimer;
   StreamSubscription? _remoteSub;
+
   StreamSubscription? _declineSub;
   StreamSubscription? _endedSub;
   StreamSubscription? _busySub;
+  StreamSubscription? _acceptedSub;
 
   @override
   void initState() {
@@ -70,87 +73,33 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
       duration: const Duration(milliseconds: 1400),
     )..repeat();
 
+    if (!widget.isIncoming) {
+      _playRingingTone();
+      _startRingTimeout();
+    } else {
+      _startTimer();
+    }
+
     _listenSockets();
     _initZegoVoiceCall();
   }
 
-  void _playRingingTone() {
-    try {
-      FlutterRingtonePlayer().play(
-        android: AndroidSounds.ringtone,
-        ios: IosSounds.electronic,
-        looping: true,
-        volume: 0.8,
-      );
-    } catch (_) {}
-  }
-
-  void _stopRingingTone() {
-    try {
-      FlutterRingtonePlayer().stop();
-    } catch (_) {}
-  }
-
-  void _listenSockets() {
-    _declineSub = ChatSocketService.instance.onCallDeclined.listen((data) {
-      if (mounted) {
-        _stopRingingTone();
-        setState(() => _callStatus = "Call Declined");
-        HapticFeedback.mediumImpact();
-        Future.delayed(const Duration(milliseconds: 1400), () {
-          if (mounted) _leaveAndPop();
-        });
-      }
-    });
-
-    _endedSub = ChatSocketService.instance.onCallEnded.listen((data) {
-      if (mounted) {
-        _stopRingingTone();
-        setState(() => _callStatus = "Call Ended");
-        Future.delayed(const Duration(milliseconds: 1000), () {
-          if (mounted) _leaveAndPop();
-        });
-      }
-    });
-
-    _busySub = ChatSocketService.instance.onCallBusy.listen((data) {
-      if (mounted) {
-        _stopRingingTone();
-        setState(() => _callStatus = "User Busy");
-        Future.delayed(const Duration(milliseconds: 1400), () {
-          if (mounted) _leaveAndPop();
-        });
-      }
-    });
-
-    _remoteSub = ZegoCallingService.instance.onRemoteStreamsChanged.listen((streams) async {
-      if (!mounted) return;
-      if (streams.isNotEmpty && !_isConnected) {
-        _stopRingingTone();
-        for (final streamId in streams) {
-          await ZegoCallingService.instance.startPlayingAudioStream(streamId);
-        }
-        setState(() {
-          _isConnected = true;
-          _callStatus = "Connected";
-        });
-        _startTimer();
-      } else if (streams.isEmpty && _isConnected) {
-        _stopRingingTone();
-        setState(() => _callStatus = "Call Ended");
-        Future.delayed(const Duration(milliseconds: 1200), () {
-          if (mounted) _leaveAndPop();
-        });
-      }
+  void _startRingTimeout() {
+    _ringTimeoutTimer?.cancel();
+    // 8 rings * 3.0 seconds cadence = 24 seconds
+    _ringTimeoutTimer = Timer(const Duration(seconds: 24), () {
+      if (!mounted || _isConnected) return;
+      _stopRingingTone();
+      setState(() => _callStatus = "No Answer");
+      HapticFeedback.mediumImpact();
+      _endCall();
     });
   }
 
   Future<void> _initZegoVoiceCall() async {
     final hasPerm = await ZegoCallingService.instance.requestPermissions(isVideo: false);
     if (!hasPerm) {
-      if (mounted) {
-        setState(() => _callStatus = "Microphone Permission Required");
-      }
+      if (mounted) setState(() => _callStatus = "Microphone Permission Required");
       return;
     }
 
@@ -194,7 +143,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
 
     final initialized = await ZegoCallingService.instance.initializeEngine(isVideo: false);
     if (!initialized) {
-      if (mounted) setState(() => _callStatus = "Engine Init Failed");
+      if (mounted) setState(() => _callStatus = "Audio Engine Init Failed");
       return;
     }
 
@@ -205,38 +154,35 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
       token: token,
       isVideo: false,
     );
-
     if (!loggedIn) {
-      if (mounted) setState(() => _callStatus = "Failed to join room");
+      if (mounted) setState(() => _callStatus = "Room Join Failed");
       return;
     }
 
-    if (mounted) {
-      setState(() {
-        _callStatus = widget.isIncoming ? "Connected" : "Ringing...";
-      });
-      if (!widget.isIncoming) {
-        _playRingingTone();
-      }
-    }
-  }
+    // Default to earpiece for private voice calls, speakerphone false
+    await ZegoCallingService.instance.setSpeakerphone(false);
 
-  void _startTimer() {
-    _ticker?.cancel();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
-        setState(() => _seconds++);
+    _remoteSub = ZegoCallingService.instance.onRemoteStreamsChanged.listen((streams) {
+      if (!mounted) return;
+      if (streams.isNotEmpty) {
+        _stopRingingTone();
+        _ringTimeoutTimer?.cancel();
+        for (final streamId in streams) {
+          ZegoCallingService.instance.startPlayingAudioStream(streamId);
+        }
+        setState(() {
+          _isConnected = true;
+          _callStatus = "Connected";
+        });
+        _startTimer();
+      } else if (streams.isEmpty && _isConnected) {
+        _stopRingingTone();
+        setState(() => _callStatus = "Call Ended");
+        Future.delayed(const Duration(milliseconds: 1200), () {
+          if (mounted) _leaveAndPop();
+        });
       }
     });
-  }
-
-  Future<void> _leaveAndPop() async {
-    _stopRingingTone();
-    _ticker?.cancel();
-    if (_activeRoomId != null) {
-      await ZegoCallingService.instance.leaveRoomAndDestroy(_activeRoomId!);
-    }
-    if (mounted) Navigator.of(context).maybePop();
   }
 
   Future<void> _toggleMute() async {
@@ -253,8 +199,19 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     if (mounted) setState(() => _speaker = next);
   }
 
+  Future<void> _leaveAndPop() async {
+    _stopRingingTone();
+    _ringTimeoutTimer?.cancel();
+    _ticker?.cancel();
+    if (_activeRoomId != null) {
+      await ZegoCallingService.instance.leaveRoomAndDestroy(_activeRoomId!);
+    }
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
   void _endCall() {
     _stopRingingTone();
+    _ringTimeoutTimer?.cancel();
     HapticFeedback.heavyImpact();
     if (_activeCallId != null) {
       CallViewModel.instance.endVoiceCall(
@@ -270,18 +227,91 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     _leaveAndPop();
   }
 
+  void _playRingingTone() {
+    try {
+      FlutterRingtonePlayer().play(
+        fromAsset: 'assets/sounds/telephone_ringback.wav',
+        ios: IosSounds.electronic,
+        looping: true,
+        volume: 1.0,
+        asAlarm: true,
+      );
+    } catch (_) {}
+  }
+
+  void _stopRingingTone() {
+    try {
+      FlutterRingtonePlayer().stop();
+    } catch (_) {}
+  }
+
+  void _listenSockets() {
+    _declineSub = ChatSocketService.instance.onCallDeclined.listen((_) {
+      if (mounted) {
+        _stopRingingTone();
+        setState(() => _callStatus = "Call Declined");
+        HapticFeedback.mediumImpact();
+        Future.delayed(const Duration(milliseconds: 1400), () {
+          if (mounted) Navigator.of(context).pop();
+        });
+      }
+    });
+
+    _endedSub = ChatSocketService.instance.onCallEnded.listen((_) {
+      if (mounted) {
+        _stopRingingTone();
+        setState(() => _callStatus = "Call Ended");
+        Future.delayed(const Duration(milliseconds: 1000), () {
+          if (mounted) Navigator.of(context).pop();
+        });
+      }
+    });
+
+    _busySub = ChatSocketService.instance.onCallBusy.listen((_) {
+      if (mounted) {
+        _stopRingingTone();
+        setState(() => _callStatus = "User Busy");
+        Future.delayed(const Duration(milliseconds: 1400), () {
+          if (mounted) Navigator.of(context).pop();
+        });
+      }
+    });
+
+    _acceptedSub = ChatSocketService.instance.onCallAccepted.listen((_) {
+      if (mounted) {
+        _stopRingingTone();
+        setState(() {
+          _isConnected = true;
+          _callStatus = "Connected";
+        });
+        _startTimer();
+      }
+    });
+  }
+
+  void _startTimer() {
+    _ticker?.cancel();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() => _seconds++);
+      }
+    });
+  }
+
   @override
   void dispose() {
     _stopRingingTone();
-    _ticker?.cancel();
+    _ringTimeoutTimer?.cancel();
     _remoteSub?.cancel();
     _declineSub?.cancel();
     _endedSub?.cancel();
     _busySub?.cancel();
-    _pulse.dispose();
+    _acceptedSub?.cancel();
+    _ticker?.cancel();
     if (_activeRoomId != null) {
       ZegoCallingService.instance.leaveRoomAndDestroy(_activeRoomId!);
     }
+    _pulse.dispose();
     super.dispose();
   }
 
@@ -294,56 +324,27 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final statusText = _callStatus ?? widget.status ?? s.callStatus(widget.name);
-
+    final status = widget.status ?? s.callStatus(widget.name);
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: AppColors.background,
       body: QBackground(
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
             child: Column(
               children: [
-                // Top bar
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(
-                        Icons.keyboard_arrow_down_rounded,
-                        size: 32,
-                        color: Colors.white70,
-                      ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: IconButton(
+                    onPressed: _endCall,
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 32,
                     ),
-                    Row(
-                      children: [
-                        const Icon(Icons.lock_rounded, size: 14, color: Color(0xFF25D366)),
-                        const SizedBox(width: 4),
-                        Text(
-                          "End-to-end encrypted",
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.6),
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 48),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  "Qapp Voice Call",
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.5),
-                    fontSize: 14,
-                    letterSpacing: 0.5,
                   ),
                 ),
+                Text(s.voiceCall, style: AppText.subtitle),
                 const Spacer(),
-
-                // Pulsing Avatar
                 RepaintBoundary(
                   child: AnimatedBuilder(
                     animation: _pulse,
@@ -355,94 +356,64 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            if (!_isConnected) ...[
-                              _ring(150 + t * 50, (1 - t) * 0.4),
-                              _ring(125 + t * 25, 0.25),
-                            ],
+                            _ring(148 + t * 56, (1 - t) * 0.35),
+                            _ring(120 + t * 30, 0.25),
                             child!,
                           ],
                         ),
                       );
                     },
-                    child: Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.accent.withValues(alpha: 0.25),
-                            blurRadius: 30,
-                            spreadRadius: 4,
-                          ),
-                        ],
-                      ),
-                      child: QAvatar(
-                        name: widget.name,
-                        size: 110,
-                        colorIndex: widget.colorIndex,
-                        photo: widget.photo,
-                      ),
+                    child: QAvatar(
+                      name: widget.name,
+                      size: 112,
+                      colorIndex: widget.colorIndex,
+                      photo: widget.photo,
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
-
-                // Name
+                const SizedBox(height: 22),
                 Text(
                   widget.name,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: AppText.title,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _callStatus ?? status,
+                  textAlign: TextAlign.center,
+                  style: AppText.subtitle,
                 ),
                 const SizedBox(height: 8),
-
-                // Status or Clock
                 Text(
-                  _isConnected ? _clock : statusText,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: statusText.contains("Declined") || statusText.contains("Failed")
-                        ? const Color(0xFFEF4444)
-                        : (_isConnected ? const Color(0xFF25D366) : Colors.white70),
+                  _isConnected ? _clock : (_callStatus ?? s.calling),
+                  style: const TextStyle(
+                    color: AppColors.accent,
                     fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 const Spacer(),
-
-                // Bottom Call Controls
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B).withValues(alpha: 0.9),
-                    borderRadius: BorderRadius.circular(32),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      // Mute
-                      _controlButton(
-                        icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
-                        label: _muted ? "Unmute" : "Mute",
-                        active: _muted,
-                        onTap: _toggleMute,
-                      ),
-
-                      // End
-                      _endButton(),
-
-                      // Speaker
-                      _controlButton(
-                        icon: _speaker ? Icons.volume_up_rounded : Icons.volume_down_rounded,
-                        label: _speaker ? "Speaker" : "Earpiece",
-                        active: _speaker,
-                        onTap: _toggleSpeaker,
-                      ),
-                    ],
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _round(
+                      icon: _muted
+                          ? Icons.mic_off_rounded
+                          : Icons.mic_none_rounded,
+                      label: s.mute,
+                      on: _muted,
+                      onTap: _toggleMute,
+                    ),
+                    _end(s.end),
+                    _round(
+                      icon: _speaker
+                          ? Icons.volume_up_rounded
+                          : Icons.volume_down_rounded,
+                      label: s.speaker,
+                      on: _speaker,
+                      onTap: _toggleSpeaker,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -466,75 +437,55 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     );
   }
 
-  Widget _controlButton({
+  Widget _round({
     required IconData icon,
     required String label,
-    required bool active,
+    required bool on,
     required VoidCallback onTap,
   }) {
     return Column(
-      mainAxisSize: MainAxisSize.min,
       children: [
         Material(
-          color: active ? Colors.white : Colors.white.withValues(alpha: 0.12),
+          color: on ? const Color(0xFF1C8F7C) : AppColors.surface,
           shape: const CircleBorder(),
           child: InkWell(
             customBorder: const CircleBorder(),
             onTap: onTap,
             child: SizedBox(
-              width: 58,
-              height: 58,
-              child: Icon(
-                icon,
-                color: active ? Colors.black : Colors.white,
-                size: 26,
-              ),
+              width: 64,
+              height: 64,
+              child: Icon(icon, color: AppColors.ink),
             ),
           ),
         ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.7),
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
+        const SizedBox(height: 8),
+        Text(label, style: TextStyle(color: AppColors.muted, fontSize: 12)),
       ],
     );
   }
 
-  Widget _endButton() {
+  Widget _end(String label) {
     return Column(
-      mainAxisSize: MainAxisSize.min,
       children: [
         Material(
-          color: const Color(0xFFEF4444),
+          color: const Color(0xFFE25B5B),
           shape: const CircleBorder(),
           child: InkWell(
             customBorder: const CircleBorder(),
             onTap: _endCall,
-            child: const SizedBox(
-              width: 66,
-              height: 66,
+            child: SizedBox(
+              width: 72,
+              height: 72,
               child: Icon(
                 Icons.call_end_rounded,
-                color: Colors.white,
-                size: 32,
+                color: AppColors.ink,
+                size: 30,
               ),
             ),
           ),
         ),
-        const SizedBox(height: 6),
-        const Text(
-          "End",
-          style: TextStyle(
-            color: Color(0xFFEF4444),
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        const SizedBox(height: 8),
+        Text(label, style: TextStyle(color: AppColors.muted, fontSize: 12)),
       ],
     );
   }

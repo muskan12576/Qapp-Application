@@ -85,13 +85,15 @@ class _GeminiLiveOrbState extends State<GeminiLiveOrb>
                     ),
                   ),
 
-                  // The Gemini Orb Canvas
-                  CustomPaint(
-                    size: Size(widget.size, widget.size),
-                    painter: _GeminiOrbPainter(
-                      progress: _waveCtrl.value,
-                      isListening: widget.isListening,
-                      isSpeaking: widget.isSpeaking,
+                  // The Gemini Orb Canvas (Isolated in RepaintBoundary for silky 60/120fps performance)
+                  RepaintBoundary(
+                    child: CustomPaint(
+                      size: Size(widget.size, widget.size),
+                      painter: _GeminiOrbPainter(
+                        progress: _waveCtrl.value,
+                        isListening: widget.isListening,
+                        isSpeaking: widget.isSpeaking,
+                      ),
                     ),
                   ),
                 ],
@@ -142,13 +144,13 @@ class _GeminiOrbPainter extends CustomPainter {
     final basePaint = Paint()..shader = baseShader;
     canvas.drawCircle(center, radius, basePaint);
 
-    // 3. Fluid Undulating White Wave & Fog Bands (Matching reference image)
+    // 3. Fluid Undulating White Wave & Fog Bands (GPU hardware-accelerated shaders)
     final time = progress * 2 * math.pi;
 
     // Layer 1: Bottom fluid misty wave
     final wavePath1 = Path();
     wavePath1.moveTo(0, size.height);
-    for (double x = 0; x <= size.width; x += 4) {
+    for (double x = 0; x <= size.width; x += 8) {
       final y = center.dy +
           math.sin(time + (x / size.width * 2 * math.pi)) * 14 +
           math.cos(time * 0.7 + (x / size.width * math.pi)) * 10;
@@ -162,19 +164,18 @@ class _GeminiOrbPainter extends CustomPainter {
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          Colors.white.withValues(alpha: 0.55),
-          const Color(0xFFAECBFA).withValues(alpha: 0.35),
+          Colors.white.withValues(alpha: 0.45),
+          const Color(0xFFAECBFA).withValues(alpha: 0.25),
           Colors.transparent,
         ],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14);
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
     canvas.drawPath(wavePath1, wavePaint1);
 
-    // Layer 2: Top rolling luminous wave crest (The white cloud ribbon from screenshot)
+    // Layer 2: Top rolling luminous wave crest
     final wavePath2 = Path();
     wavePath2.moveTo(0, 0);
     wavePath2.lineTo(0, center.dy * 0.7);
-    for (double x = 0; x <= size.width; x += 4) {
+    for (double x = 0; x <= size.width; x += 8) {
       final y = (center.dy * 0.65) +
           math.sin(time * 1.3 + (x / size.width * 2.5 * math.pi)) * 18 +
           math.cos(time * 0.9 + (x / size.width * 1.5 * math.pi)) * 8;
@@ -188,30 +189,28 @@ class _GeminiOrbPainter extends CustomPainter {
         begin: Alignment.bottomCenter,
         end: Alignment.topCenter,
         colors: [
-          Colors.white.withValues(alpha: 0.85),
-          const Color(0xFFD2E3FC).withValues(alpha: 0.4),
+          Colors.white.withValues(alpha: 0.75),
+          const Color(0xFFD2E3FC).withValues(alpha: 0.35),
           Colors.transparent,
         ],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
     canvas.drawPath(wavePath2, wavePaint2);
 
-    // Layer 3: Central ethereal cloud bloom
+    // Layer 3: Central ethereal cloud bloom (Zero-cost radial gradient glow)
     final bloomPaint = Paint()
       ..shader = RadialGradient(
         center: Alignment(
           math.sin(time * 0.8) * 0.3,
           -0.2 + math.cos(time * 0.6) * 0.15,
         ),
-        radius: 0.55,
+        radius: 0.6,
         colors: [
-          Colors.white.withValues(alpha: 0.9),
-          Colors.white.withValues(alpha: 0.2),
+          Colors.white.withValues(alpha: 0.8),
+          Colors.white.withValues(alpha: 0.15),
           Colors.transparent,
         ],
-        stops: const [0.0, 0.5, 1.0],
-      ).createShader(Rect.fromCircle(center: center, radius: radius * 0.6))
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: radius * 0.6));
     canvas.drawCircle(center, radius * 0.45, bloomPaint);
 
     canvas.restore();

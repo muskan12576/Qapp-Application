@@ -206,10 +206,10 @@ class _ChatsScreenState extends State<ChatsScreen> with SingleTickerProviderStat
                       return aInName ? -1 : 1;
                     }
                   }
-                  if (a.pinned == b.pinned) {
-                    return 0;
+                  if (a.pinned != b.pinned) {
+                    return a.pinned ? -1 : 1;
                   }
-                  return a.pinned ? -1 : 1;
+                  return 0;
                 });
 
               return Stack(
@@ -234,24 +234,6 @@ class _ChatsScreenState extends State<ChatsScreen> with SingleTickerProviderStat
                                 letterSpacing: 0.3,
                               ),
                             ),
-                            if (unreadCount > 0) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF25D366),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Text(
-                                  '$unreadCount',
-                                  style: const TextStyle(
-                                    color: Colors.black,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ),
-                            ],
                             const Spacer(),
                             IconButton(
                               tooltip: 'Qapp AI Voice Assistant',
@@ -322,10 +304,28 @@ class _ChatsScreenState extends State<ChatsScreen> with SingleTickerProviderStat
                                     },
                                   ),
                                 IconButton(
-                                  icon: Icon(
-                                    _isListeningVoice ? Icons.mic_rounded : Icons.mic_none_rounded,
-                                    color: _isListeningVoice ? Colors.redAccent : const Color(0xFF25D366),
-                                    size: 22,
+                                  icon: AnimatedBuilder(
+                                    animation: _pulse,
+                                    builder: (context, _) {
+                                      final blink = _isListeningVoice ? (0.35 + 0.65 * _pulse.value) : 1.0;
+                                      return Opacity(
+                                        opacity: blink,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: _isListeningVoice
+                                                ? Colors.redAccent.withValues(alpha: 0.22 * _pulse.value)
+                                                : Colors.transparent,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Icon(
+                                            _isListeningVoice ? Icons.mic_rounded : Icons.mic_none_rounded,
+                                            color: _isListeningVoice ? Colors.redAccent : const Color(0xFF25D366),
+                                            size: 22,
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
                                   tooltip: _isListeningVoice ? 'Listening... Tap to stop' : 'Voice Search',
                                   onPressed: _toggleVoiceSearch,
@@ -367,15 +367,9 @@ class _ChatsScreenState extends State<ChatsScreen> with SingleTickerProviderStat
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           children: [
                             _chipButton(s.all, 'all'),
-                            _chipButton(
-                              unreadCount > 0 ? '${s.unread} $unreadCount' : s.unread,
-                              'unread',
-                            ),
+                            _chipButton(s.unread, 'unread', count: unreadCount),
                             _chipButton(s.favourite, 'fav'),
-                            _chipButton(
-                              groupCount > 0 ? '${s.groups} $groupCount' : s.groups,
-                              'groups',
-                            ),
+                            _chipButton(s.groups, 'groups', count: groupCount),
                           ],
                         ),
                       ),
@@ -550,7 +544,7 @@ class _ChatsScreenState extends State<ChatsScreen> with SingleTickerProviderStat
     );
   }
 
-  Widget _chipButton(String label, String value) {
+  Widget _chipButton(String label, String value, {int count = 0}) {
     final on = _chip == value;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
@@ -582,13 +576,38 @@ class _ChatsScreenState extends State<ChatsScreen> with SingleTickerProviderStat
                       ]
                     : null,
               ),
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: on ? Colors.black : AppColors.ink,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: on ? Colors.black : AppColors.ink,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                  if (count > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: on
+                            ? const Color(0xFFE53935)
+                            : const Color(0xFF25D366),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$count',
+                        style: TextStyle(
+                          color: on ? Colors.white : Colors.black,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             );
           },
@@ -635,6 +654,7 @@ class _MyStoryAvatarItem extends StatelessWidget {
                     child: QAvatar(
                       name: MyProfile.name.isNotEmpty ? MyProfile.name : 'Me',
                       bytes: MyProfile.photo,
+                      photo: MyProfile.photoUrl,
                       size: 48,
                       colorIndex: 2,
                     ),
@@ -741,7 +761,7 @@ class _PeerStoryAvatarItem extends StatelessWidget {
   }
 }
 
-void _chatMenu(BuildContext context, ChatThread thread) {
+void _chatMenu(BuildContext context, ChatThread thread, {VoidCallback? onUpdate}) {
   final s = S.of(context);
   showModalBottomSheet<void>(
     context: context,
@@ -755,22 +775,26 @@ void _chatMenu(BuildContext context, ChatThread thread) {
           mainAxisSize: MainAxisSize.min,
           children: [
             _sheetTile(thread.pinned ? s.unpin : s.pinned, Icons.push_pin_rounded, () {
-              ChatBook.instance.togglePin(thread);
               Navigator.pop(sheet);
+              ChatBook.instance.togglePin(thread);
+              onUpdate?.call();
             }),
             _sheetTile(
               thread.favourite ? 'Remove from Favourites' : s.addFav,
               thread.favourite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
               () {
-                ChatBook.instance.toggleFavourite(thread);
                 Navigator.pop(sheet);
+                ChatBook.instance.toggleFavourite(thread);
+                onUpdate?.call();
               },
             ),
             _sheetTile(thread.muted ? s.unmute : s.muteNotif, Icons.notifications_off_rounded, () {
-              ChatBook.instance.toggleMute(thread);
               Navigator.pop(sheet);
+              ChatBook.instance.toggleMute(thread);
+              onUpdate?.call();
             }),
             _sheetTile(s.clearChat, Icons.cleaning_services_rounded, () {
+              Navigator.pop(sheet);
               final chatId = thread.chatId;
               if (chatId != null && chatId.isNotEmpty) {
                 ChatViewModel.instance.clearChat(chatId);
@@ -779,15 +803,21 @@ void _chatMenu(BuildContext context, ChatThread thread) {
               thread.preview = '';
               thread.unread = 0;
               ChatBook.instance.ping();
-              Navigator.pop(sheet);
+              onUpdate?.call();
             }),
             _sheetTile(thread.blocked ? s.unblock : s.block, Icons.block_rounded, () {
-              ChatBook.instance.toggleBlock(thread);
               Navigator.pop(sheet);
+              if (thread.blocked) {
+                ChatBook.instance.toggleBlock(thread);
+                onUpdate?.call();
+              } else {
+                showBlockReportDialog(context, thread, onBlocked: onUpdate);
+              }
             }),
             _sheetTile(s.deleteChat, Icons.delete_outline_rounded, () {
-              ChatBook.instance.remove(thread);
               Navigator.pop(sheet);
+              ChatBook.instance.remove(thread);
+              onUpdate?.call();
             }),
           ],
         ),
@@ -936,7 +966,7 @@ class _ChatRow extends StatelessWidget {
               }
               Navigator.of(context).push(qRoute(ChatOpenScreen(thread: thread)));
             },
-            onLongPress: () => _chatMenu(context, thread),
+            onLongPress: () => _chatMenu(context, thread, onUpdate: () => ChatBook.instance.ping()),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
               child: Row(

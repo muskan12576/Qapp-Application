@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:qapp/l10n/packs.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AppLang extends ChangeNotifier {
   AppLang._();
@@ -8,12 +9,28 @@ class AppLang extends ChangeNotifier {
 
   String code = 'en';
 
+  Future<void> init() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('app_language_code');
+      if (saved != null && packs.containsKey(saved)) {
+        code = saved;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
   void use(String value) {
     if (value == code || !packs.containsKey(value)) {
       return;
     }
     code = value;
     notifyListeners();
+    SharedPreferences.getInstance()
+        .then((prefs) {
+          prefs.setString('app_language_code', value);
+        })
+        .catchError((_) {});
   }
 
   bool get rtl {
@@ -57,6 +74,7 @@ class S {
     if (code == 'hing') return 'Signing in...';
     return 'Signing in...';
   }
+
   String get otpTitle => tr('otpTitle');
   String get otpSub => tr('otpSub');
   String get next => tr('next');
@@ -203,4 +221,61 @@ class S {
   }
 
   String callStatus(String name) => tr('callStatus').replaceAll('{name}', name);
+
+  String get logout {
+    switch (code) {
+      case 'hi': return 'लॉग आउट';
+      case 'hing': return 'Logout Karein';
+      case 'ur': return 'لاگ آؤٹ';
+      case 'pa': return 'ਲੌਗ ਆਉਟ';
+      case 'bn': return 'লগ আউট';
+      case 'ta': return 'வெளியேறு';
+      case 'te': return 'లాగ్ అవుట్';
+      case 'mr': return 'लॉग आउट';
+      case 'gu': return 'લૉગ આઉટ';
+      case 'kn': return 'ಲಾಗ್ ಔಟ್';
+      case 'ml': return 'ലോഗ് ഔട്ട്';
+      case 'or': return 'ଲଗ୍ ଆଉଟ୍';
+      case 'ne': return 'लग आउट';
+      case 'ar': return 'تسجيل الخروج';
+      case 'fa': return 'خروج';
+      case 'es': return 'Cerrar sesión';
+      case 'fr': return 'Se déconnecter';
+      case 'de': return 'Abmelden';
+      default: return 'Logout';
+    }
+  }
+
+  String get logoutAsk {
+    switch (code) {
+      case 'hi': return 'क्या आप वाकई लॉग आउट करना चाहते हैं?';
+      case 'hing': return 'Kya aap sach mein logout karna chahte hain?';
+      case 'ur': return 'کیا آپ واقعی لاگ آؤٹ کرنا چاہتے ہیں؟';
+      case 'pa': return 'ਕੀ ਤੁਸੀਂ ਵਾਕਈ ਲੌਗ ਆਉਟ ਕਰਨਾ ਚਾਹੁੰਦੇ ਹੋ?';
+      case 'bn': return 'আপনি কি সত্যিই লগ আউট করতে চান?';
+      case 'ta': return 'நீங்கள் நிச்சயமாக வெளியேற விரும்புகிறீர்களா?';
+      case 'te': return 'మీరు ఖచ్చితంగా లాగ్ అవుట్ చేయాలనుకుంటున్నారా?';
+      case 'mr': return 'तुम्हाला नक्की लॉग आउट करायचे आहे का?';
+      case 'gu': return 'શું તમે ખરેખર લૉગ આઉਟ કરવા માંગો છો?';
+      case 'kn': return 'ನೀವು ನಿಜವಾಗಿಯೂ ಲಾಗ್ ಔಟ್ ಮಾಡಲು ಬಯಸುವಿರಾ?';
+      case 'ml': return 'തീർച്ചയായും ലോഗ് ഔട്ട് ചെയ്യണമെന്നുണ്ടോ?';
+      case 'or': return 'ଆପଣ ନିଶ୍ଚିତ ଭାବରେ ଲଗ୍ ଆଉଟ୍ କରିବାକୁ ଚାହୁଁଛନ୍ତି କି?';
+      case 'ne': return 'के तपाईं साँच्चै लग आउट गर्न चाहनुहुन्छ?';
+      case 'ar': return 'هل أنت متأكد أنك تريد تسجيل الخروج؟';
+      case 'fa': return 'آیا مطمئن هستید که می‌خواهید خارج شوید؟';
+      case 'es': return '¿Estás seguro de que deseas cerrar sesión?';
+      case 'fr': return 'Êtes-vous sûr de vouloir vous déconnecter?';
+      case 'de': return 'Möchten Sie sich wirklich abmelden?';
+      default: return 'Are you sure you want to logout?';
+    }
+  }
+
+  String get logoutSub {
+    switch (code) {
+      case 'hi': return 'अगली बार, OTP के साथ साइन इन करें';
+      case 'hing': return 'Agli baar, OTP se sign in karein';
+      case 'ur': return 'اگلی بار، OTP کے ساتھ سائن ان کریں';
+      default: return 'Next time, sign in with OTP';
+    }
+  }
 }

@@ -12,7 +12,9 @@ class SharedPrefsConstants {
 }
 
 class AppConstants {
-  static const String baseUrl = "http://192.168.1.23:5000";
+  // static const String baseUrl = "http://192.168.1.4:5000";
+  static const String baseUrl =
+      "https://overcoat-effects-yippee.ngrok-free.dev";
 
   // SMS OTP Provider
   static const String otpAuthKey =
